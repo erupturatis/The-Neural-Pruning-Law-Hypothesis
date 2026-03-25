@@ -46,20 +46,6 @@ _X_TICKS = [
     1, 1.5, 2, 3, 5, 7, 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 95,
 ]
 
-
-# ---------------------------------------------------------------------------
-# NplhSeries dataclass
-# ---------------------------------------------------------------------------
-
-@dataclass
-class NplhSeries:
-    """One pruning run's data, ready to plot."""
-    label:     str
-    remaining: np.ndarray            # % of weights remaining at each step
-    saliency:  np.ndarray            # saliency value at each step
-    accuracy:  np.ndarray | None = field(default=None)  # optional, in %
-
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

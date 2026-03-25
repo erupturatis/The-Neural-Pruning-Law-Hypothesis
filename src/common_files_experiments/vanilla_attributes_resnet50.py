@@ -15,7 +15,6 @@ RESNET50_VANILLA_REGISTERED_LAYERS_ATTRIBUTES = [
      "out_channels": 256, "kernel_size": 1, "stride": 1, "padding": 0, "bias_enabled": False},
     {"name": "layer1_block1_downsample", "type": CONV2D_LAYER, "in_channels": 64,
      "out_channels": 256, "kernel_size": 1, "stride": 1, "padding": 0, "bias_enabled": False},
-
     # Layer 1 - Block 2
     {"name": "layer1_block2_conv1", "type": CONV2D_LAYER, "in_channels": 256,
      "out_channels": 64, "kernel_size": 1, "stride": 1, "padding": 0, "bias_enabled": False},

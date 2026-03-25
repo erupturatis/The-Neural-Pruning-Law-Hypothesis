@@ -1,13 +1,10 @@
 from src.infrastructure.layer_initializations import kaiming_sqrt5, kaiming_relu, kaiming_sqrt0, bad_initialization
 from src.infrastructure.mask_functions import MaskPruningFunctionConstant
-from src.infrastructure.parameters_mask_processors import get_flow_params_statistics_raw_, \
-    get_flow_params_loss_raw_
 from typing import Dict
 
+COUNT_FLOPS = False
 MaskPruningFunction = MaskPruningFunctionConstant
 
-get_flow_params_loss_abstract = get_flow_params_loss_raw_
-get_flow_params_statistics_abstract = get_flow_params_statistics_raw_
 
 _configs_layers_init = {
     "fcn": kaiming_sqrt5,

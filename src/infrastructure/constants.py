@@ -1,4 +1,4 @@
-WEIGHTS_PRUNING_ATTR = 'mask_pruning'
+MASK_ATTR = 'mask_pruning'
 WEIGHTS_BASE_ATTR = 'mask_base'
 
 WEIGHTS_ATTR = 'weights'

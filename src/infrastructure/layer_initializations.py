@@ -3,7 +3,6 @@ import math
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 def bad_initialization(weights: torch.Tensor):
     nn.init.uniform_(weights, a=-1, b=1)
 
