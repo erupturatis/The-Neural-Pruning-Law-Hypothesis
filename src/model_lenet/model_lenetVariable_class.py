@@ -1,7 +1,7 @@
 import torch
 from src.infrastructure.layers import (
     ConfigsNetworkMask, LayerLinearMaskImportance, ConfigsLayerLinear,
-    get_flow_params_loss, LayerPrimitive, LayerComposite, get_layers_primitive,
+     LayerPrimitive, LayerComposite, get_layers_primitive,
 )
 from src.infrastructure.constants import FULLY_CONNECTED_LAYER
 from src.model_lenet.model_attributes import get_lenet_variable_attributes
@@ -12,6 +12,7 @@ class ModelLenetVariable(LayerComposite):
         super(ModelLenetVariable, self).__init__()
         self._layer_attributes = get_lenet_variable_attributes(alpha)
         self.registered_layers = []
+        self.alpha = alpha
 
         for layer_attr in self._layer_attributes:
             name = layer_attr['name']

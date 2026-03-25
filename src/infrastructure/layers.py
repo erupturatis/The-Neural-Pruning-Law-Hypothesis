@@ -265,32 +265,4 @@ def get_total_and_remaining_params(self: LayerComposite) -> tuple[int, int]:
 def get_total_params(self: LayerComposite) -> int:
     return sum(getattr(l, MASK_ATTR).data.numel() for l in get_layers_primitive(self))
 
-# =============================================================================
-# SECTION 4: Magnitude Pruning
-# =============================================================================
-
-def magnitude_prune(model: LayerComposite, pruning_rate: float = 0.1) -> float:
-    """Prune pruning_rate fraction of remaining active weights by global magnitude. Returns threshold used."""
-    if pruning_rate == 0.0:
-        return 0.0
-
-    active_mags = []
-    for layer in model.get_layers_primitive():
-        weights = getattr(layer, WEIGHTS_ATTR).data
-        mask = getattr(layer, MASK_ATTR).data
-        active = weights[mask >= 0]
-        if active.numel() > 0:
-            active_mags.append(torch.abs(active).flatten())
-
-    all_mags = torch.cat(active_mags)
-    k = min(max(1, int(all_mags.numel() * pruning_rate)), all_mags.numel())
-    threshold = torch.kthvalue(all_mags, k).values.item()
-
-    with torch.no_grad():
-        for layer in model.get_layers_primitive():
-            weights = getattr(layer, WEIGHTS_ATTR).data
-            mask = getattr(layer, MASK_ATTR).data
-            mask[(mask >= 0) & (torch.abs(weights) <= threshold)] = -1.0
-
-    return threshold
 

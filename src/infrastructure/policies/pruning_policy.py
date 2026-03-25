@@ -1,84 +1,170 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 
+import torch
+
+from src.infrastructure.training_context import TrainingContext
+from src.infrastructure.constants import WEIGHTS_ATTR, MASK_ATTR
+
+
+def _save_grads(model) -> dict:
+    return {
+        name: (param.grad.clone() if param.grad is not None else None)
+        for name, param in model.named_parameters()
+    }
+
+
+def _restore_grads(model, saved: dict) -> None:
+    for name, param in model.named_parameters():
+        param.grad = saved.get(name)
+
+
 class PruningPolicy(ABC):
     @abstractmethod
-    def apply_pruning(self) -> None:
+    def apply_pruning(self, ctx: TrainingContext) -> None:
         pass
 
-# ---------------------------------------------------------------------------
-# Policy 1: Magnitude (standard IMP)
-# ---------------------------------------------------------------------------
 
 class MagnitudePruningPolicy(PruningPolicy):
-    """
-    Prune the fraction of active weights with the smallest absolute magnitude.
-    No data required.  Equivalent to ``prune_model_globally`` in layers.py.
-    """
+    # uses: ctx.model
+    def __init__(self, pruning_rate: float = 0.1):
+        self.pruning_rate = pruning_rate
 
-    def apply_pruning(
-        self
-    ) -> None:
-        raise Exception("Magnitude pruning Not implemented yet.")
+    def apply_pruning(self, ctx: TrainingContext) -> None:
+        if self.pruning_rate == 0.0:
+            return
 
-# ---------------------------------------------------------------------------
-# Policy 2: Taylor expansion  (weight-level, unstructured)
-# ---------------------------------------------------------------------------
+        active_mags = []
+        for layer in ctx.model.get_layers_primitive():
+            weights = getattr(layer, WEIGHTS_ATTR).data
+            mask = getattr(layer, MASK_ATTR).data
+            active = weights[mask >= 0]
+            if active.numel() > 0:
+                active_mags.append(torch.abs(active).flatten())
 
-class TaylorPruningPolicy(PruningPolicy):
-    """
-    First-order Taylor criterion.
-        score(w_ij) = |w_ij · ∂L/∂w_ij|
+        if not active_mags:
+            raise Exception("No active weights found for pruning, something went wrong and density reached 0%")
 
-    Estimates the absolute change in loss if weight w_ij were zeroed.
-    Prune the lowest-scoring active weights.
-    Requires one data batch and a loss criterion.
-    """
+        all_mags = torch.cat(active_mags)
+        k = min(max(1, int(all_mags.numel() * self.pruning_rate)), all_mags.numel())
+        threshold = torch.kthvalue(all_mags, k).values.item()
 
-    def apply_pruning(
-        self
-    ) -> None:
-        raise Exception("Taylor pruning Not implemented yet.")
+        with torch.no_grad():
+            for layer in ctx.model.get_layers_primitive():
+                weights = getattr(layer, WEIGHTS_ATTR).data
+                mask = getattr(layer, MASK_ATTR).data
+                mask[(mask >= 0) & (torch.abs(weights) <= threshold)] = -1.0
 
-# ---------------------------------------------------------------------------
-# Policy 3: Gradient magnitude  (weight-level, unstructured)
-# ---------------------------------------------------------------------------
-
-class GradientPruningPolicy(PruningPolicy):
-    def apply_pruning(
-        self,
-    ) -> None:
-        raise Exception("Gradient pruning Not implemented yet.")
-
-# ---------------------------------------------------------------------------
-# Policy 4: Hyperflux (L0 regularization based pruning)
-# ---------------------------------------------------------------------------
-
-class HyperfluxPruningPolicy(PruningPolicy):
-
-    def apply_pruning(
-        self
-    ) -> None:
-        raise Exception("Hyperflux pruning Not implemented yet.")
-
-# ---------------------------------------------------------------------------
-# Policy 5: Pure random pruning (weight-level, unstructured)
-# ---------------------------------------------------------------------------
 
 class RandomPruningPolicy(PruningPolicy):
+    # uses: ctx.model
+    def __init__(self, pruning_rate: float = 0.1):
+        self.pruning_rate = pruning_rate
 
-    def apply_pruning(
-        self,
-    ) -> None:
-        raise Exception("Random pruning Not implemented yet.")
+    def apply_pruning(self, ctx: TrainingContext) -> None:
+        with torch.no_grad():
+            for layer in ctx.model.get_layers_primitive():
+                mask = getattr(layer, MASK_ATTR).data
+                flat = mask.flatten()
+                active_idx = (flat >= 0).nonzero(as_tuple=False).squeeze(1)
+                if active_idx.numel() == 0:
+                    continue
+                n_prune = max(1, int(active_idx.numel() * self.pruning_rate))
+                perm = torch.randperm(active_idx.numel(), device=mask.device)[:n_prune]
+                flat[active_idx[perm]] = -1.0
 
-# ---------------------------------------------------------------------------
-# Policy 6: Hessian diagonal (weight-level, unstructured)
-# ---------------------------------------------------------------------------
+
+class GradientPruningPolicy(PruningPolicy):
+    # uses: ctx.model, ctx.accumulate_gradients
+    # Saves and restores param.grad so training momentum is undisturbed.
+    def __init__(self, pruning_rate: float = 0.1):
+        self.pruning_rate = pruning_rate
+
+    def apply_pruning(self, ctx: TrainingContext) -> None:
+        saved_grads = _save_grads(ctx.model)
+        ctx.accumulate_gradients()
+
+        layers = ctx.model.get_layers_primitive()
+        active_scores = []
+        for layer in layers:
+            w = getattr(layer, WEIGHTS_ATTR)
+            mask = getattr(layer, MASK_ATTR).data
+            if w.grad is None:
+                continue
+            active = mask >= 0
+            if active.any():
+                active_scores.append(w.grad.detach()[active].abs().flatten())
+
+        if active_scores:
+            all_scores = torch.cat(active_scores)
+            k = min(max(1, int(all_scores.numel() * self.pruning_rate)), all_scores.numel())
+            threshold = torch.kthvalue(all_scores, k).values.item()
+
+            with torch.no_grad():
+                for layer in layers:
+                    w = getattr(layer, WEIGHTS_ATTR)
+                    mask = getattr(layer, MASK_ATTR).data
+                    if w.grad is None:
+                        continue
+                    active = mask >= 0
+                    mask[active & (w.grad.detach().abs() <= threshold)] = -1.0
+
+        _restore_grads(ctx.model, saved_grads)
+
+
+class TaylorPruningPolicy(PruningPolicy):
+    # uses: ctx.model, ctx.accumulate_gradients
+    # Saves and restores param.grad so training momentum is undisturbed.
+    def __init__(self, pruning_rate: float = 0.1):
+        self.pruning_rate = pruning_rate
+
+    def apply_pruning(self, ctx: TrainingContext) -> None:
+        saved_grads = _save_grads(ctx.model)
+        ctx.accumulate_gradients()
+
+        layers = ctx.model.get_layers_primitive()
+        active_scores = []
+        for layer in layers:
+            w = getattr(layer, WEIGHTS_ATTR)
+            mask = getattr(layer, MASK_ATTR).data
+            if w.grad is None:
+                continue
+            active = mask >= 0
+            if active.any():
+                taylor = (w.data * w.grad.detach())[active].abs().flatten()
+                active_scores.append(taylor)
+
+        if active_scores:
+            all_scores = torch.cat(active_scores)
+            k = min(max(1, int(all_scores.numel() * self.pruning_rate)), all_scores.numel())
+            threshold = torch.kthvalue(all_scores, k).values.item()
+
+            with torch.no_grad():
+                for layer in layers:
+                    w = getattr(layer, WEIGHTS_ATTR)
+                    mask = getattr(layer, MASK_ATTR).data
+                    if w.grad is None:
+                        continue
+                    active = mask >= 0
+                    taylor = (w.data * w.grad.detach()).abs()
+                    mask[active & (taylor <= threshold)] = -1.0
+
+        _restore_grads(ctx.model, saved_grads)
+
 
 class HessianPruningPolicy(PruningPolicy):
+    # uses: ctx.model, ctx.optimizer, ctx.compute_hessian_diagonal, ctx.reset_optimizer_state
+    def __init__(self, pruning_rate: float = 0.1):
+        self.pruning_rate = pruning_rate
 
-    def apply_pruning(
-        self
-    ) -> None:
-        raise Exception("Hessian pruning Not implemented yet.")
+    def apply_pruning(self, ctx: TrainingContext) -> None:
+        pass
+
+
+class HyperfluxPruningPolicy(PruningPolicy):
+    # uses: ctx.model, ctx.optimizer, ctx.train_one_epoch, ctx.reset_optimizer_state
+    def __init__(self, pruning_rate: float = 0.1):
+        self.pruning_rate = pruning_rate
+
+    def apply_pruning(self, ctx: TrainingContext) -> None:
+        pass
