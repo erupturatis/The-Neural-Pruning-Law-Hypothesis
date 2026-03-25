@@ -1,0 +1,25 @@
+Run ID   : 20260313_202304
+Run name : lenet_variable_random_pruning
+Created  : 2026-03-13 20:23:04
+
+Experimental setup
+==================
+  model                     : Variable LeNet (784→h1→h2→10)
+  dataset                   : MNIST
+  train_epochs              : 25
+  pruning_rate              : 0.1
+  finetune_epochs           : 3
+  finetune_lr               : 0.001
+  collapse_threshold        : 15.0%
+  pruning_criterion         : random (uniform)
+  architectures             : (4,2), (10,5), (20,10), (50,25), (100,50), (300,100), (600,200), (1200,400), (2500,800), (5000,1500)
+  hypothesis                : If avg |w| grows during trained random pruning but not in the static control, saliency growth is intrinsic to training.  Testing across architectures spanning under- to over-parameterized regimes reveals whether overparameterization drives the magnitude inflection point.
+
+CSV format
+==========
+  Filename pattern : <model>_<dataset>_<saliency_type>_<method>.csv
+  Columns          :
+    Step             pruning step number
+    RemainingParams  % of weights still active after this step
+    Saliency         saliency value at this step
+    Accuracy         test accuracy in % (omitted when not available)

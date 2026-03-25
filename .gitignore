@@ -1,0 +1,98 @@
+# MANUALLY ADDED
+.claude
+**/results
+/data
+/antonio_experiments
+/networks_baseline
+.venv
+venv
+.DS_Store
+**/.DS_Store
+*.pth
+**/*.pth
+.idea
+
+# GENERIC 
+
+# Ignore the entire .vscode directory
+.vscode/*
+
+# EXCEPT for these files (allow them to be tracked)
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Ignore workspace files (contains local window state)
+*.code-workspace
+
+# Ignore local history (if using an extension that tracks it)
+.history/
+
+# --- System Files ---
+.DS_Store
+Thumbs.db
+*.swp
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --- Jupyter Notebooks ---
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+# Remove the line below if you want to track notebook autosaves
+*.ipynb_checkpoints
+
+# --- IDEs (VS Code & PyCharm) ---
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*.code-workspace
+
+# --- ML Specific: Data & Models ---
+# Large datasets should not be committed
+data/
+datasets/
+*.csv
+*.jsonl
+*.parquet
+*.h5
+*.hd5
+
+# Model weights and checkpoints
+*.pth
+*.pt
+*.onnx
+*.pb
+*.ckpt
+*.weights
+*.model
+*.joblib
+*.pickle
+*.pkl
+
+# --- Experiment Tracking & Logs ---
+logs/
+*.log
+mlruns/
+lightning_logs/
+wandb/
+tensorboard/
+
+# --- Environment & Credentials ---
+.env
+.secrets

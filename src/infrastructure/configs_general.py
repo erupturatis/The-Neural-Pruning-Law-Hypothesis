@@ -1,0 +1,7 @@
+WANDB_REGISTER = True
+VERBOSE_BATCHES = False
+VERBOSE_SCHEDULER = True
+VERBOSE_STAGES = True
+EXTRA_VERBOSE_STAGES = False
+
+train_validation_split=1

@@ -1,0 +1,26 @@
+Run ID   : 20260315_171740
+Run name : lenet300_activation_saliency
+Created  : 2026-03-15 17:17:40
+
+Experimental setup
+==================
+  model                     : LeNet-300-100 (784→300→100→10)
+  dataset                   : MNIST
+  pruning_criterion         : random (uniform)
+  train_epochs              : 25
+  pruning_rate              : 0.1
+  finetune_epochs           : 3
+  finetune_lr               : 0.001
+  collapse_threshold        : 15.0%
+  saliency_1                : magnitude — mean |w| of active weights before pruning
+  saliency_2                : APoZ — Average Percentage of Zeros over active hidden neurons (>=1 unpruned input) on one batch before pruning
+  hypothesis                : Does APoZ follow a power-law relationship with density under random pruning with fine-tuning, analogous to the weight-magnitude saliency trend?
+
+CSV format
+==========
+  Filename pattern : <model>_<dataset>_<saliency_type>_<method>.csv
+  Columns          :
+    Step             pruning step number
+    RemainingParams  % of weights still active after this step
+    Saliency         saliency value at this step
+    Accuracy         test accuracy in % (omitted when not available)
