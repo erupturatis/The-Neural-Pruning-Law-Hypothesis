@@ -12,6 +12,8 @@ FULLY_CONNECTED_LAYER = 'fully_connected'
 
 PRUNED_MODELS_PATH = '/networks_pruned'
 BASELINE_MODELS_PATH = '/networks_baseline'
+NPLH_DATA = '/nplh_data'
+
 IMAGENET_PATH = ''
 
 DATA_PATH = '/data'

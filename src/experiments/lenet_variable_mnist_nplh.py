@@ -16,15 +16,6 @@ from src.infrastructure.constants import BASELINE_MODELS_PATH, PRUNED_MODELS_PAT
 from src.model_lenet.model_lenetVariable_class import ModelLenetVariable
 from src.experiments.utils import get_model_density
 
-
-# ── Config ────────────────────────────────────────────────────────────────────
-
-LR_FINETUNE   = 1e-3
-DENSE_EPOCHS  = 60
-MAX_ROUNDS    = 20
-
-# ─── NPLH experiment ──────────────────────────────────────────────────────────
-
 def nplh_lenet_mnist(
     model: ModelLenetVariable,
     pruning_policy: PruningPolicy,
@@ -32,6 +23,8 @@ def nplh_lenet_mnist(
     saliency_policy: SaliencyMeasurementPolicy,
     stopping_policy: NPLHStoppingPolicy,
 ):
+    LR_FINETUNE   = 1e-3
+    MAX_ROUNDS = 1000
 
     dataset = DatasetSmallContext(dataset=DatasetSmallType.MNIST, configs=dataset_context_configs_mnist())
     optimizer = torch.optim.Adam(model.parameters(), lr=LR_FINETUNE)
