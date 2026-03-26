@@ -34,7 +34,7 @@ from src.infrastructure.constants import BASELINE_MODELS_PATH, WEIGHTS_ATTR, MAS
 from src.infrastructure.dataset_context.dataset_context import (
     DatasetSmallContext, DatasetSmallType,
 )
-from src.infrastructure.layers import ConfigsNetworkMask
+from src.infrastructure.layers import ConfigsNetworkMask, get_layers_primitive
 from src.infrastructure.nplh_run_context import (
     NplhRunContext,
     COL_STEP, COL_REMAINING, COL_SALIENCY, COL_ACCURACY,
@@ -103,7 +103,7 @@ def _compute_all_saliencies(
       grad_avg   = mean |∂L/∂w|
     """
     layers = [
-        layer for layer in model.get_layers_primitive()
+        layer for layer in get_layers_primitive(model)
         if hasattr(layer, WEIGHTS_ATTR) and hasattr(layer, MASK_ATTR)
     ]
 

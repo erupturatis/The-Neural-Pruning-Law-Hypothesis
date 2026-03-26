@@ -11,7 +11,7 @@ from src.infrastructure.dataset_context.dataset_context import (
     DatasetSmallContext, DatasetSmallType, dataset_context_configs_mnist,
 )
 from src.infrastructure.layers import (
-    ConfigsNetworkMask, calculate_pruning_epochs,
+    ConfigsNetworkMask, calculate_pruning_epochs, get_layers_primitive,
 )
 from src.infrastructure.nplh_run_context import (
     NplhRunContext, COL_STEP, COL_REMAINING, COL_SALIENCY, COL_ACCURACY,
@@ -77,7 +77,7 @@ def _test_epoch(
 def _collect_active_weights(model: nn.Module) -> np.ndarray:
     """Return raw weight values of all currently active (unpruned) weights."""
     parts = []
-    for layer in model.get_layers_primitive():
+    for layer in get_layers_primitive(model):
         if hasattr(layer, "weights") and hasattr(layer, "mask_pruning"):
             w = layer.weights.data
             m = layer.mask_pruning.data

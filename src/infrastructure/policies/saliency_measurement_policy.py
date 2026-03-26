@@ -5,6 +5,7 @@ import torch
 
 from src.infrastructure.training_context import TrainingContext
 from src.infrastructure.constants import WEIGHTS_ATTR, MASK_ATTR
+from src.infrastructure.layers import get_layers_primitive
 from src.infrastructure.policies.pruning_policy import _save_grads, _restore_grads
 
 
@@ -19,7 +20,7 @@ class MagnitudeSaliencyMeasurementPolicy(SaliencyMeasurementPolicy):
     # uses: ctx.model
     def measure_saliency(self, ctx: TrainingContext) -> tuple[float, float]:
         active_mags = []
-        for layer in ctx.model.get_layers_primitive():
+        for layer in get_layers_primitive(ctx.model):
             w = getattr(layer, WEIGHTS_ATTR).data
             mask = getattr(layer, MASK_ATTR).data
             active = mask >= 0
@@ -44,7 +45,7 @@ class TaylorSaliencyMeasurementPolicy(SaliencyMeasurementPolicy):
         ctx.accumulate_gradients()
 
         active_scores = []
-        for layer in ctx.model.get_layers_primitive():
+        for layer in get_layers_primitive(ctx.model):
             w = getattr(layer, WEIGHTS_ATTR)
             mask = getattr(layer, MASK_ATTR).data
             if w.grad is None:
@@ -79,7 +80,7 @@ class APoZSaliencyMeasurementPolicy(SaliencyMeasurementPolicy):
     # activations, then computes APoZ (fraction of outputs <= 0, i.e. dead
     # after ReLU) per active neuron, averaged across all active neurons.
     def measure_saliency(self, ctx: TrainingContext) -> tuple[float, float]:
-        layers = ctx.model.get_layers_primitive()
+        layers = get_layers_primitive(ctx.model)
 
         # Per-layer accumulators: zeros count and sample count per output unit
         zeros_per_layer = [None] * len(layers)
@@ -131,6 +132,36 @@ class APoZSaliencyMeasurementPolicy(SaliencyMeasurementPolicy):
         min_sal = float(all_vals.min().item())
         avg_sal = float(all_vals.mean().item())
         print(f"[APoZSaliency] min APoZ = {min_sal:.4f}  avg APoZ = {avg_sal:.4f}")
+        return min_sal, avg_sal
+
+
+class GradientSaliencyMeasurementPolicy(SaliencyMeasurementPolicy):
+    # uses: ctx.model, ctx.accumulate_gradients
+    # Saves and restores param.grad so training momentum is undisturbed.
+    def measure_saliency(self, ctx: TrainingContext) -> tuple[float, float]:
+        saved_grads = _save_grads(ctx.model)
+        ctx.accumulate_gradients()
+
+        active_scores = []
+        for layer in get_layers_primitive(ctx.model):
+            w = getattr(layer, WEIGHTS_ATTR)
+            mask = getattr(layer, MASK_ATTR).data
+            if w.grad is None:
+                continue
+            active = mask >= 0
+            if active.any():
+                active_scores.append(w.grad.detach()[active].abs().flatten())
+
+        _restore_grads(ctx.model, saved_grads)
+        ctx.model.train()
+
+        if not active_scores:
+            return 0.0, 0.0
+
+        all_scores = torch.cat(active_scores)
+        min_sal = float(all_scores.min().item())
+        avg_sal = float(all_scores.mean().item())
+        print(f"[GradientSaliency] min |g| = {min_sal:.6e}  avg |g| = {avg_sal:.6e}")
         return min_sal, avg_sal
 
 

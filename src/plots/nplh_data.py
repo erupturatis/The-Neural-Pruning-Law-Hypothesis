@@ -15,7 +15,7 @@ from src.infrastructure.others import prefix_path_with_root
 # Generated once at import time. All series created in this process are saved
 # under nplh_data/{_PROCESS_ID}/ so runs never collide and are easy to group.
 
-_PROCESS_ID = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+_PROCESS_ID = time.strftime('%Y%m%d_%H%M_') + ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
 
 NPLH_DATA_FOLDER = 'nplh_data'
 
@@ -29,8 +29,8 @@ def get_process_folder() -> str:
 @dataclass
 class NplhSample:
     density:      float
-    min_saliency: float
     avg_saliency: float
+    min_saliency: Optional[float] = None
     accuracy:     Optional[float] = None
     epoch:        Optional[int]   = None
 
@@ -67,8 +67,8 @@ class NplhSeries:
     def record(
         self,
         density:      float,
-        min_saliency: float,
         avg_saliency: float,
+        min_saliency: Optional[float] = None,
         accuracy:     Optional[float] = None,
         epoch:        Optional[int]   = None,
     ) -> None:

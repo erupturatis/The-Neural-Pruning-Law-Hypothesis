@@ -1,7 +1,7 @@
 import torch
 from src.infrastructure.layers import (
     ConfigsNetworkMask, LayerLinearMaskImportance, ConfigsLayerLinear,
-     LayerPrimitive, LayerComposite, get_layers_primitive,
+    LayerPrimitive, LayerComposite, get_layers_primitive, get_flow_params_loss,
 )
 from src.infrastructure.constants import FULLY_CONNECTED_LAYER
 from src.model_lenet.model_attributes import get_lenet_variable_attributes

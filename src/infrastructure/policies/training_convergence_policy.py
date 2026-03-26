@@ -15,9 +15,11 @@ class FixedEpochsConvergencePolicy(TrainingConvergencePolicy):
         self.epochs = epochs
 
     def train_until_convergence(self, ctx: TrainingContext) -> float:
-        for _ in range(self.epochs):
+        for epoch in range(1, self.epochs + 1):
             ctx.train_one_epoch()
-        return ctx.evaluate()
+            print(f"    epoch {epoch}/{self.epochs}")
+        acc = ctx.evaluate()
+        return acc
 
 class UntilConvergencePolicy(TrainingConvergencePolicy):
     # uses: ctx.train_one_epoch, ctx.evaluate
@@ -28,10 +30,11 @@ class UntilConvergencePolicy(TrainingConvergencePolicy):
 
     def train_until_convergence(self, ctx: TrainingContext) -> float:
         acc_history = []
-        for _ in range(self.max_epochs):
+        for epoch in range(1, self.max_epochs + 1):
             ctx.train_one_epoch()
             acc = ctx.evaluate()
             acc_history.append(acc)
+            print(f"    epoch {epoch}/{self.max_epochs}  acc={acc:.4f}")
             if len(acc_history) >= self.window:
                 recent = acc_history[-self.window:]
                 if max(recent) - min(recent) < self.tol:

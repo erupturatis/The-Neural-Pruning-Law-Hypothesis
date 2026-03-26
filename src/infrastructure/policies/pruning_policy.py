@@ -5,6 +5,7 @@ import torch
 
 from src.infrastructure.training_context import TrainingContext
 from src.infrastructure.constants import WEIGHTS_ATTR, MASK_ATTR
+from src.infrastructure.layers import get_layers_primitive
 
 
 def _save_grads(model) -> dict:
@@ -35,7 +36,7 @@ class MagnitudePruningPolicy(PruningPolicy):
             return
 
         active_mags = []
-        for layer in ctx.model.get_layers_primitive():
+        for layer in get_layers_primitive(ctx.model):
             weights = getattr(layer, WEIGHTS_ATTR).data
             mask = getattr(layer, MASK_ATTR).data
             active = weights[mask >= 0]
@@ -50,7 +51,7 @@ class MagnitudePruningPolicy(PruningPolicy):
         threshold = torch.kthvalue(all_mags, k).values.item()
 
         with torch.no_grad():
-            for layer in ctx.model.get_layers_primitive():
+            for layer in get_layers_primitive(ctx.model):
                 weights = getattr(layer, WEIGHTS_ATTR).data
                 mask = getattr(layer, MASK_ATTR).data
                 mask[(mask >= 0) & (torch.abs(weights) <= threshold)] = -1.0
@@ -63,7 +64,7 @@ class RandomPruningPolicy(PruningPolicy):
 
     def apply_pruning(self, ctx: TrainingContext) -> None:
         with torch.no_grad():
-            for layer in ctx.model.get_layers_primitive():
+            for layer in get_layers_primitive(ctx.model):
                 mask = getattr(layer, MASK_ATTR).data
                 flat = mask.flatten()
                 active_idx = (flat >= 0).nonzero(as_tuple=False).squeeze(1)
@@ -84,7 +85,7 @@ class GradientPruningPolicy(PruningPolicy):
         saved_grads = _save_grads(ctx.model)
         ctx.accumulate_gradients()
 
-        layers = ctx.model.get_layers_primitive()
+        layers = get_layers_primitive(ctx.model)
         active_scores = []
         for layer in layers:
             w = getattr(layer, WEIGHTS_ATTR)
@@ -122,7 +123,7 @@ class TaylorPruningPolicy(PruningPolicy):
         saved_grads = _save_grads(ctx.model)
         ctx.accumulate_gradients()
 
-        layers = ctx.model.get_layers_primitive()
+        layers = get_layers_primitive(ctx.model)
         active_scores = []
         for layer in layers:
             w = getattr(layer, WEIGHTS_ATTR)

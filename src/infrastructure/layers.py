@@ -6,8 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing_extensions import TypedDict
 from src.infrastructure.configs_layers import MaskPruningFunction, \
-    configs_get_layers_initialization, COUNT_FLOPS
-from src.infrastructure.mask_functions import MaskPruningFunctionConstant
+    configs_get_layers_initialization, COUNT_FLOPS, get_flow_params_loss_abstract
 from src.infrastructure.others import get_device
 import math
 from src.infrastructure.constants import WEIGHTS_ATTR, BIAS_ATTR, MASK_ATTR,  \
@@ -27,9 +26,7 @@ class LayerPrimitive(nn.Module, ABC):
     pass
 
 class LayerComposite(nn.Module, ABC):
-    @abstractmethod
-    def get_layers_primitive(self) -> List[LayerPrimitive]:
-        pass
+    pass
 
 @dataclass
 class ConfigsLayerLinear:
@@ -105,7 +102,7 @@ class LayerLinearMaskImportance(LayerPrimitive):
             bias = getattr(self, BIAS_ATTR)
 
         if self.mask_apply_enabled:
-            mask_changes = MaskPruningFunctionConstant.apply(getattr(self, MASK_ATTR))
+            mask_changes = MaskPruningFunction.apply(getattr(self, MASK_ATTR))
             masked_weight = masked_weight * mask_changes
 
         return F.linear(input, masked_weight, bias)
@@ -190,7 +187,7 @@ class LayerConv2MaskImportance(LayerPrimitive):
             bias = getattr(self, BIAS_ATTR)
 
         if self.mask_apply_enabled:
-            mask_changes = MaskPruningFunctionConstant.apply(getattr(self, MASK_ATTR))
+            mask_changes = MaskPruningFunction.apply(getattr(self, MASK_ATTR))
             masked_weights = masked_weights * mask_changes
 
         return F.conv2d(input, masked_weights, bias, self.stride, self.padding)
@@ -264,5 +261,18 @@ def get_total_and_remaining_params(self: LayerComposite) -> tuple[int, int]:
 
 def get_total_params(self: LayerComposite) -> int:
     return sum(getattr(l, MASK_ATTR).data.numel() for l in get_layers_primitive(self))
+
+
+def get_flow_params_loss(self: LayerComposite) -> tuple[float, torch.Tensor]:
+    layers: List[LayerPrimitive] = get_layers_primitive(self)
+    total = 0
+    activations = torch.tensor(0, device=get_device(), dtype=torch.float)
+
+    for layer in layers:
+        layer_total, layer_remaining = get_flow_params_loss_abstract(layer)
+        total += layer_total
+        activations += layer_remaining
+
+    return total, activations
 
 

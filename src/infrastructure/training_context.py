@@ -6,6 +6,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch import Tensor
 
+from src.infrastructure.layers import LayerComposite
+
 
 @dataclass
 class TrainingContext:
@@ -21,7 +23,7 @@ class TrainingContext:
     """
 
     # ── Direct handles ────────────────────────────────────────────────────────
-    model:     nn.Module          # base model, unwrapped (no DataParallel shell)
+    model:     LayerComposite
     optimizer: optim.Optimizer
 
     # ── Core training primitives (all policies that train/evaluate need these) ─

@@ -24,7 +24,7 @@ from src.common_files_experiments.vanilla_attributes_resnet50 import (
 )
 from src.infrastructure.configs_layers import configs_layers_initialization_all_kaiming_sqrt5
 from src.infrastructure.constants import WEIGHTS_ATTR, MASK_ATTR
-from src.infrastructure.layers import ConfigsNetworkMask
+from src.infrastructure.layers import ConfigsNetworkMask, get_layers_primitive
 from src.infrastructure.pruning_policy import MagnitudePruningPolicy
 from src.infrastructure.nplh_run_context import (
     NplhRunContext, COL_STEP, COL_REMAINING, COL_SALIENCY,
@@ -40,7 +40,7 @@ TARGET_SPARSITY = 0.999   # stop when >= 99.9% of weights have been pruned
 
 def _collect_active_weights(model: Resnet50Imagenet) -> np.ndarray:
     parts = []
-    for layer in model.get_layers_primitive():
+    for layer in get_layers_primitive(model):
         if hasattr(layer, WEIGHTS_ATTR) and hasattr(layer, MASK_ATTR):
             w = getattr(layer, WEIGHTS_ATTR).data
             m = getattr(layer, MASK_ATTR).data

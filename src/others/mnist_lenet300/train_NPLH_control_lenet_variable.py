@@ -44,7 +44,7 @@ from src.infrastructure.configs_layers import configs_layers_initialization_all_
 from src.infrastructure.dataset_context.dataset_context import (
     DatasetSmallContext, DatasetSmallType, dataset_context_configs_mnist,
 )
-from src.infrastructure.layers import ConfigsNetworkMask
+from src.infrastructure.layers import ConfigsNetworkMask, get_layers_primitive
 from src.infrastructure.nplh_run_context import (
     NplhRunContext, COL_STEP, COL_REMAINING, COL_SALIENCY, COL_ACCURACY,
     SAL_MIN, SAL_AVG,
@@ -96,7 +96,7 @@ def _evaluate(model, dataset_context) -> float:
 
 def _collect_active_weights(model) -> np.ndarray:
     parts = []
-    for layer in model.get_layers_primitive():
+    for layer in get_layers_primitive(model):
         if hasattr(layer, "weights") and hasattr(layer, "mask_pruning"):
             w = layer.weights.data
             m = layer.mask_pruning.data
