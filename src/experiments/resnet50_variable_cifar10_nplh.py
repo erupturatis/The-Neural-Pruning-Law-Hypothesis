@@ -62,7 +62,7 @@ def nplh_resnet50_cifar10(
         for policy in saliency_policies:
             min_sal, avg_sal = policy.measure_saliency(ctx)
             series = series_map[policy]
-            series.record(density, avg_sal, min_saliency=min_sal, accuracy=acc)
+            series.record(density, avg_sal, min_saliency=min_sal, accuracy=acc, epoch=ctx.epoch_count)
             series.save()
         print(f"  [Saliency]  done — recorded and saved")
 

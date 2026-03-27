@@ -46,24 +46,35 @@ def _evaluate(model: nn.Module, dataset: DatasetContextAbstract) -> float:
 def _accumulate_gradients(model: nn.Module, dataset: DatasetContextAbstract,
                            optimizer: optim.Optimizer, criterion: nn.Module,
                            n_batches: int | None) -> None:
-    # Fills param.grad with the mean gradient over `n_batches` batches
+    # Fills param.grad with the mean ABSOLUTE gradient over `n_batches` batches
     # (or the full epoch if n_batches is None). Does NOT call optimizer.step().
+    # Absolute values are accumulated per-batch before summing so that gradients
+    # of opposite sign across batches do not cancel out.
     model.train()
     dataset.init_data_split()
-    optimizer.zero_grad()
+    abs_accum: dict[int, torch.Tensor] = {}
     count = 0
     while dataset.any_data_training_available():
         if n_batches is not None and count >= n_batches:
             break
         data, target = dataset.get_training_data_and_labels()
+        optimizer.zero_grad()
         loss = criterion(model(data), target)
         loss.backward()
-        count += 1
-    # Normalise so param.grad holds the mean gradient regardless of count
-    if count > 1:
         for param in model.parameters():
             if param.grad is not None:
-                param.grad /= count
+                pid = id(param)
+                if pid not in abs_accum:
+                    abs_accum[pid] = param.grad.detach().abs().clone()
+                else:
+                    abs_accum[pid] += param.grad.detach().abs()
+        count += 1
+    # Write mean |grad| back into param.grad
+    if count > 0:
+        for param in model.parameters():
+            pid = id(param)
+            if pid in abs_accum:
+                param.grad = abs_accum[pid] / count
 
 
 def _compute_hessian_diagonal(model: nn.Module, dataset: DatasetContextAbstract,

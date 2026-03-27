@@ -12,8 +12,8 @@ from src.infrastructure.policies.nplh_stopping_policy import NPLHDensityLimitSto
 def experiment_random_pruning_lenet_mnist():
     models_to_run = [
         ModelSpec(alpha=0.5, loaded_model_name="lenet_alpha0.5_acc97.7"),
-        ModelSpec(alpha=1.0, loaded_model_name="lenet_alpha1.0_acc98.0"),
-        ModelSpec(alpha=2.0, loaded_model_name="lenet_alpha2.0_acc98.1"),
+        # ModelSpec(alpha=1.0, loaded_model_name="lenet_alpha1.0_acc98.0"),
+        # ModelSpec(alpha=2.0, loaded_model_name="lenet_alpha2.0_acc98.1"),
     ]
     experiment_lenet_variable_NPLH(
         models_to_run=models_to_run,
@@ -24,7 +24,7 @@ def experiment_random_pruning_lenet_mnist():
             TaylorSaliencyMeasurementPolicy(),
             GradientSaliencyMeasurementPolicy(),
         ],
-        stopping_policy=NPLHDensityLimitStoppingPolicy(density_threshold=0.1),
+        stopping_policy=NPLHDensityLimitStoppingPolicy(density_threshold=1),
     )
 
 

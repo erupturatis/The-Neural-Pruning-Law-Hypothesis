@@ -6,6 +6,7 @@ import torch
 from src.infrastructure.training_context import TrainingContext
 from src.infrastructure.constants import WEIGHTS_ATTR, MASK_ATTR
 from src.infrastructure.layers import get_layers_primitive
+from warnings import warn
 
 
 def _save_grads(model) -> dict:
@@ -33,22 +34,32 @@ class MagnitudePruningPolicy(PruningPolicy):
 
     def apply_pruning(self, ctx: TrainingContext) -> None:
         if self.pruning_rate == 0.0:
+            warn("Pruning rate is 0.0, skipping pruning step.")
             return
 
-        active_mags = []
+        active_magnitudes = []
         for layer in get_layers_primitive(ctx.model):
             weights = getattr(layer, WEIGHTS_ATTR).data
             mask = getattr(layer, MASK_ATTR).data
             active = weights[mask >= 0]
             if active.numel() > 0:
-                active_mags.append(torch.abs(active).flatten())
+                # flatten redundant
+                active_magnitudes.append(torch.abs(active).flatten())
 
-        if not active_mags:
-            raise Exception("No active weights found for pruning, something went wrong and density reached 0%")
+        if len(active_magnitudes) == 0:
+            raise Exception("No layers found, active magnitudes is empty")
+        if any(layer_tensor.numel() == 0 for layer_tensor in active_magnitudes):
+            raise Exception("One or more layers have 0 active weights.")
 
-        all_mags = torch.cat(active_mags)
-        k = min(max(1, int(all_mags.numel() * self.pruning_rate)), all_mags.numel())
-        threshold = torch.kthvalue(all_mags, k).values.item()
+        all_magnitudes = torch.cat(active_magnitudes)
+        prune_count = int(all_magnitudes.numel() * self.pruning_rate)
+
+        if prune_count == 0:
+            raise Exception("Pruning rate too low or no weights to prune")
+        if prune_count >= all_magnitudes.numel():
+            raise Exception("Pruning rate too high, would prune all weights, something went wrong")
+
+        threshold = torch.kthvalue(all_magnitudes, prune_count).values.item()
 
         with torch.no_grad():
             for layer in get_layers_primitive(ctx.model):

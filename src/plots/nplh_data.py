@@ -72,7 +72,7 @@ class NplhSeries:
         accuracy:     Optional[float] = None,
         epoch:        Optional[int]   = None,
     ) -> None:
-        self._samples.append(NplhSample(density, min_saliency, avg_saliency, accuracy, epoch))
+        self._samples.append(NplhSample(density, avg_saliency, min_saliency, accuracy, epoch))
 
     # ── Persistence ───────────────────────────────────────────────────────────
 
