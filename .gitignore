@@ -4,8 +4,9 @@ Gemini.md
 GEMINI.md
 .claude
 **/results
+/not_to_github
 /data
-/antonio_experiments
+/not_to_github/antonio_experiments
 /networks_baseline
 .venv
 venv
