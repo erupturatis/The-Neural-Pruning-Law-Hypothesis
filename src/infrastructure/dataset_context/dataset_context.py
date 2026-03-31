@@ -67,7 +67,7 @@ _AUGMENTATIONS_CIFAR_100 = nn.Sequential(
 
 _AUGMENTATION_CIFAR_100_TEST = nn.Sequential(
     K.Normalize(mean_cifar100, std_cifar100),
-)
+).to(get_device())
 
 _AUGMENTATIONS_MNIST = nn.Sequential(
     K.Normalize(mean_mnist, std_mnist),
