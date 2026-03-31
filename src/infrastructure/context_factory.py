@@ -4,134 +4,188 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch import Tensor
+from src.infrastructure.layers import ModelCustom, get_flow_params_loss, set_mask_apply_all, set_mask_training_all, \
+    set_weights_training_all
+from src.infrastructure.schedulers import AbstractScheduler
 from src.infrastructure.training_context import TrainingContext
 from src.infrastructure.dataset_context.dataset_context import DatasetContextAbstract
 
-# ── Private primitives ────────────────────────────────────────────────────────
-# These are generic implementations that work for any nn.Module and any dataset
-# that implements DatasetContextAbstract. Multi-GPU (DataParallel) is transparent
-# since model(x) and param.data/.grad work identically on wrapped models.
+def _train_one_epoch_hyperflux(model: ModelCustom, dataset: DatasetContextAbstract, optimizer_weights: optim.Optimizer, optimizer_masks: optim.Optimizer, criterion:nn.Module, scheduler: AbstractScheduler) -> None:
+    """
+    Trains the model normally, but with mask parameters included in the optimization. Basically hyperflux. Also takes scheduler into account for loss adjustment
+    """
+    set_mask_apply_all(model, True)
+    set_mask_training_all(model, True)
+    set_weights_training_all(model, True)
 
-def _train_one_epoch(model: nn.Module, dataset: DatasetContextAbstract,
-                     optimizer: optim.Optimizer, criterion: nn.Module) -> float:
     model.train()
     dataset.init_data_split()
-    total_loss, n_batches = 0.0, 0
+
     while dataset.any_data_training_available():
         data, target = dataset.get_training_data_and_labels()
+
+        optimizer_weights.zero_grad()
+        optimizer_masks.zero_grad()
+
+        output = model(data)
+        loss_masks = model.get_hyperflux_loss() * scheduler.get_multiplier()
+        loss_data = criterion(output, target)
+        loss = loss_masks + loss_data
+
+        loss.backward()
+
+        optimizer_weights.step()
+        optimizer_masks.step()
+
+
+def _train_one_epoch(model: ModelCustom, dataset: DatasetContextAbstract,
+                     optimizer: optim.Optimizer, criterion: nn.Module) -> None:
+    """
+    Normal training, nothing fancy, masks are just applied
+    """
+    set_mask_apply_all(model, True)
+    set_mask_training_all(model, False)
+    set_weights_training_all(model, True)
+
+    model.train()
+    dataset.init_data_split()
+    while dataset.any_data_training_available():
+        data, target = dataset.get_training_data_and_labels()
+
         optimizer.zero_grad()
+
         loss = criterion(model(data), target)
+
         loss.backward()
         optimizer.step()
-        total_loss += loss.item()
-        n_batches += 1
-    return total_loss / max(n_batches, 1)
 
 
-def _evaluate(model: nn.Module, dataset: DatasetContextAbstract) -> float:
-    # Calls init_data_split() itself so it is fully self-contained and can be
-    # called independently from train_one_epoch without relying on a prior call
-    # having initialised the test iterator.
+def _evaluate(model: ModelCustom, dataset: DatasetContextAbstract, criterion: nn.Module) -> tuple[float, float]:
+    """
+    Evaluates the model and computes both accuracy and loss.
+    Returns:
+        tuple[float, float]: (accuracy, loss)
+    """
+    set_mask_apply_all(model, True)
+    set_mask_training_all(model, False)
+    set_weights_training_all(model, True)
+
     model.eval()
     dataset.init_data_split()
     correct = 0
+    total_loss = 0.0
+    n_batches = 0
+
     with torch.no_grad():
         while dataset.any_data_testing_available():
             data, target = dataset.get_testing_data_and_labels()
             out = model(data)
+
+            # Compute accuracy
             correct += out.argmax(dim=1).eq(target).sum().item()
-    return 100.0 * correct / dataset.get_data_testing_length()
 
+            # Compute loss
+            total_loss += criterion(out, target).item()
+            n_batches += 1
 
-def _accumulate_gradients(model: nn.Module, dataset: DatasetContextAbstract,
-                           optimizer: optim.Optimizer, criterion: nn.Module,
-                           n_batches: int | None) -> None:
-    # Fills param.grad with the mean ABSOLUTE gradient over `n_batches` batches
-    # (or the full epoch if n_batches is None). Does NOT call optimizer.step().
-    # Absolute values are accumulated per-batch before summing so that gradients
-    # of opposite sign across batches do not cancel out.
+    accuracy = 100.0 * correct / dataset.get_data_testing_length()
+    avg_loss = total_loss / max(n_batches, 1)
+
+    return accuracy, avg_loss
+
+def _accumulate_gradients(model: ModelCustom, dataset: DatasetContextAbstract,
+                          optimizer: optim.Optimizer, criterion: nn.Module,
+                          n_batches: int | None) -> None:
+    """
+    averages of absolute values of gradients over n batches, masks are just applied not trained, only does this for weights
+    """
+    set_mask_apply_all(model, True)
+    set_mask_training_all(model, False)
+    set_weights_training_all(model, True)
+
     model.train()
     dataset.init_data_split()
-    abs_accum: dict[int, torch.Tensor] = {}
+    absolute_accumulation: dict[int, torch.Tensor] = {}
+    squared_accumulation:  dict[int, torch.Tensor] = {}
     count = 0
+
     while dataset.any_data_training_available():
         if n_batches is not None and count >= n_batches:
             break
+
         data, target = dataset.get_training_data_and_labels()
         optimizer.zero_grad()
         loss = criterion(model(data), target)
         loss.backward()
+
         for param in model.parameters():
             if param.grad is not None:
                 pid = id(param)
-                if pid not in abs_accum:
-                    abs_accum[pid] = param.grad.detach().abs().clone()
+                g = param.grad.detach()
+                if pid not in absolute_accumulation:
+                    absolute_accumulation[pid] = g.abs().clone()
+                    squared_accumulation[pid]  = g.pow(2).clone()
                 else:
-                    abs_accum[pid] += param.grad.detach().abs()
+                    absolute_accumulation[pid] += g.abs()
+                    squared_accumulation[pid]  += g.pow(2)
         count += 1
-    # Write mean |grad| back into param.grad
+
+    # Write mean |grad| into param.grad and mean g² into param._hessian_diag
     if count > 0:
         for param in model.parameters():
             pid = id(param)
-            if pid in abs_accum:
-                param.grad = abs_accum[pid] / count
+            if pid in absolute_accumulation:
+                param.grad = absolute_accumulation[pid] / count
+                param._hessian_diag = squared_accumulation[pid] / count
 
 
-def _compute_hessian_diagonal(model: nn.Module, dataset: DatasetContextAbstract,
-                               criterion: nn.Module,
-                               n_batches: int | None) -> dict[str, Tensor]:
-    # Hutchinson's estimator: one Rademacher sample per batch, averaged across
-    # batches. Holds the forward-pass compute graph in memory during each batch,
-    # so keep n_batches small for large models to avoid OOM.
+def _accumulate_mask_gradients(model: ModelCustom, dataset: DatasetContextAbstract,
+                               optimizer_weights: optim.Optimizer, criterion: nn.Module,
+                               n_batches: int | None) -> None:
+    """
+    Averages of mask gradients over n batches. Weights are fixed, masks are trainable.
+    Gradients are NOT absolute-valued — we want the signed flux.
+    """
+    set_mask_apply_all(model, True)
+    set_mask_training_all(model, True)
+    set_weights_training_all(model, False)
+
     model.train()
     dataset.init_data_split()
 
-    param_dict = dict(model.named_parameters())
-    hessian_diag = {name: torch.zeros_like(p) for name, p in param_dict.items()}
-    param_list = list(param_dict.values())
-
+    accumulation: dict[int, torch.Tensor] = {}
     count = 0
+
     while dataset.any_data_training_available():
         if n_batches is not None and count >= n_batches:
             break
+
         data, target = dataset.get_training_data_and_labels()
+        optimizer_weights.zero_grad() # This clears weight grads, but we need to clear mask grads too.
+        # However, masks might not be in optimizer_weights.
+        # Let's manually zero all parameters just in case.
+        for p in model.parameters():
+            if p.grad is not None:
+                p.grad.zero_()
 
-        model.zero_grad()
         loss = criterion(model(data), target)
+        loss.backward()
 
-        # First-order gradients — keep graph for second-order pass
-        grads = torch.autograd.grad(loss, param_list, create_graph=True)
-
-        # Rademacher vector z ∈ {-1, +1}^n
-        zs = [torch.randint_like(g, 0, 2).to(g.dtype) * 2 - 1 for g in grads]
-
-        # Hessian-vector product Hv = ∂(g·z)/∂w
-        gz = sum((g * z).sum() for g, z in zip(grads, zs))
-        hvs = torch.autograd.grad(gz, param_list)
-
-        # Accumulate diagonal estimate: H_ii ≈ z_i * (Hv)_i
-        for name, z, hv in zip(param_dict.keys(), zs, hvs):
-            hessian_diag[name] += z * hv.detach()
-
+        for param in model.parameters():
+            if param.grad is not None:
+                pid = id(param)
+                g = param.grad.detach()
+                if pid not in accumulation:
+                    accumulation[pid] = g.clone()
+                else:
+                    accumulation[pid] += g
         count += 1
 
     if count > 0:
-        for name in hessian_diag:
-            hessian_diag[name] /= count
-
-    return hessian_diag
-
-
-def _run_forward(model: nn.Module, dataset: DatasetContextAbstract) -> None:
-    # Runs the full training set through the model under no_grad.
-    # Policies register their hooks on model before calling this; the forward
-    # pass fires those hooks automatically.
-    model.eval()
-    dataset.init_data_split()
-    with torch.no_grad():
-        while dataset.any_data_training_available():
-            data, _ = dataset.get_training_data_and_labels()
-            model(data)
+        for param in model.parameters():
+            pid = id(param)
+            if pid in accumulation:
+                param.grad = accumulation[pid] / count
 
 
 def _reset_optimizer_state(model: nn.Module, optimizer: optim.Optimizer) -> None:
@@ -154,12 +208,11 @@ def _reset_optimizer_state(model: nn.Module, optimizer: optim.Optimizer) -> None
 # ── Factory ───────────────────────────────────────────────────────────────────
 
 def make_training_context(
-    model: nn.Module,
+    model: ModelCustom,
     dataset: DatasetContextAbstract,
     optimizer: optim.Optimizer,
     criterion: nn.Module,
     gradient_batches: int | None = None,
-    hessian_batches: int | None = None,
 ) -> TrainingContext:
     """
     Builds a fully wired TrainingContext from the given objects.
@@ -173,30 +226,39 @@ def make_training_context(
     Args:
         gradient_batches: batches to use for accumulate_gradients.
                           None = full epoch. A small value (e.g. 16) is
-                          typically sufficient for Taylor/gradient saliency.
-        hessian_batches:  batches to use for compute_hessian_diagonal.
-                          Hessian estimation holds the compute graph per batch;
-                          keep this small for large models.
+                          typically sufficient for Taylor/gradient/Hessian saliency.
     """
     ctx = TrainingContext(
         model=model,
         optimizer=optimizer,
-        train_one_epoch=lambda: None,  # replaced below after ctx is created
-        evaluate=lambda: _evaluate(model, dataset),
+        train_one_epoch=lambda: None,
+        train_one_epoch_hyperflux=lambda sched, optim: None,
+        evaluate=lambda: _evaluate(model, dataset, criterion),
         accumulate_gradients=lambda: _accumulate_gradients(
             model, dataset, optimizer, criterion, gradient_batches
         ),
-        compute_hessian_diagonal=lambda: _compute_hessian_diagonal(
-            model, dataset, criterion, hessian_batches
+        accumulate_mask_gradients=lambda: _accumulate_mask_gradients(
+            model, dataset, optimizer, criterion, gradient_batches
         ),
-        run_forward=lambda: _run_forward(model, dataset),
         reset_optimizer_state=lambda: _reset_optimizer_state(model, optimizer),
     )
 
-    def _counting_train() -> float:
-        loss = _train_one_epoch(model, dataset, optimizer, criterion)
+    def _counting_train() -> None:
+        _train_one_epoch(model, dataset, optimizer, criterion)
         ctx.epoch_count += 1
-        return loss
+
+    def _counting_train_hyperflux(scheduler: AbstractScheduler, optimizer_masks: optim.Optimizer) -> None:
+        _train_one_epoch_hyperflux(
+            model=model,
+            dataset=dataset,
+            optimizer_weights=optimizer,
+            optimizer_masks=optimizer_masks,
+            criterion=criterion,
+            scheduler=scheduler
+        )
+        ctx.epoch_count += 1
 
     ctx.train_one_epoch = _counting_train
+    ctx.train_one_epoch_hyperflux = _counting_train_hyperflux
+
     return ctx

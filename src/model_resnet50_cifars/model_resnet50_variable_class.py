@@ -1,15 +1,16 @@
+import torch
 import torch.nn as nn
 
 from src.infrastructure.constants import CONV2D_LAYER, FULLY_CONNECTED_LAYER, BATCH_NORM_2D_LAYER
 from src.infrastructure.layers import (
     ConfigsNetworkMask, LayerConv2MaskImportance, ConfigsLayerConv2,
-    LayerLinearMaskImportance, ConfigsLayerLinear, LayerComposite,
+    LayerLinearMaskImportance, ConfigsLayerLinear, ModelCustom, get_flow_params_loss,
 )
-from src.model_resnet50_cifar10.model_attributes import get_resnet50_variable_cifar10_attributes
-from src.model_resnet50_cifar10.model_functions import forward_pass_resnet50_cifar10
+from src.model_resnet50_cifars.model_attributes import get_resnet50_variable_cifar10_attributes
+from src.model_resnet50_cifars.model_functions import forward_pass_resnet50_cifar10
 
 
-class ModelResnet50Variable(LayerComposite):
+class ModelResnet50Variable(ModelCustom):
     def __init__(self, alpha: float, config_network_mask: ConfigsNetworkMask, num_classes: int = 10):
         super().__init__()
         self.alpha = alpha
@@ -59,6 +60,10 @@ class ModelResnet50Variable(LayerComposite):
             else:
                 raise ValueError(f"Unsupported unregistered layer type: {t}")
             setattr(self, name, layer)
+
+    def get_hyperflux_loss(self) -> torch.Tensor:
+        total, sigmoid = get_flow_params_loss(self)
+        return sigmoid / total
 
     def forward(self, x):
         return forward_pass_resnet50_cifar10(self, x)

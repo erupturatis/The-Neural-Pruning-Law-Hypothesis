@@ -1,25 +1,27 @@
 import torch
 import torch.nn as nn
+from dataclasses import dataclass
 
 from src.common_files_experiments.load_save import load_model_entire_dict
-from src.experiments.lenet_variable_mnist_train_dense import train_dense_lenet_mnist
+from src.experiments.resnet50_variable_cifar100_train_dense import train_dense_resnet50_cifar100
 from src.infrastructure.context_factory import make_training_context
-from src.infrastructure.dataset_context.dataset_context import DatasetSmallContext, DatasetSmallType, \
-    dataset_context_configs_mnist
+from src.infrastructure.dataset_context.dataset_context import (
+    DatasetSmallContext, DatasetSmallType, dataset_context_configs_cifar100,
+)
 from src.infrastructure.layers import ConfigsNetworkMask, get_total_and_remaining_params
 from src.infrastructure.others import get_device
 from src.infrastructure.policies.pruning_policy import PruningPolicy
 from src.infrastructure.policies.saliency_measurement_policy import SaliencyMeasurementPolicy, compute_network_state
 from src.infrastructure.policies.training_convergence_policy import TrainingConvergencePolicy
 from src.infrastructure.policies.nplh_stopping_policy import NPLHStoppingPolicy
-from src.infrastructure.constants import BASELINE_MODELS_PATH, PRUNED_MODELS_PATH
-from src.model_lenet.model_lenetVariable_class import ModelLenetVariable
+from src.infrastructure.constants import BASELINE_MODELS_PATH
+from src.model_resnet50_cifars.model_resnet50_variable_class import ModelResnet50Variable
 from src.experiments.utils import get_model_density
 from src.plots.nplh_data import NplhSeries
 
 
-def nplh_lenet_mnist(
-    model: ModelLenetVariable,
+def nplh_resnet50_cifar100(
+    model: ModelResnet50Variable,
     pruning_policy: PruningPolicy,
     convergence_policy: TrainingConvergencePolicy,
     saliency_policies: list[SaliencyMeasurementPolicy],
@@ -28,7 +30,7 @@ def nplh_lenet_mnist(
     LR_FINETUNE = 1e-3
     MAX_ROUNDS = 1000
 
-    dataset = DatasetSmallContext(dataset=DatasetSmallType.MNIST, configs=dataset_context_configs_mnist())
+    dataset = DatasetSmallContext(dataset=DatasetSmallType.CIFAR100, configs=dataset_context_configs_cifar100())
     optimizer = torch.optim.Adam(model.parameters(), lr=LR_FINETUNE)
     criterion = nn.CrossEntropyLoss()
 
@@ -36,7 +38,7 @@ def nplh_lenet_mnist(
     total_params, _ = get_total_and_remaining_params(model)
 
     series_map = {
-        policy: NplhSeries(f"lenet_mnist_alpha{model.alpha}_{type(policy).__name__}")
+        policy: NplhSeries(f"resnet50_cifar100_alpha{model.alpha}_{type(policy).__name__}")
         for policy in saliency_policies
     }
 
@@ -82,35 +84,33 @@ def nplh_lenet_mnist(
         print(f"  [Saliency]  done — recorded and saved")
 
 
-from dataclasses import dataclass
-
 @dataclass
 class ModelSpec:
     alpha: float
     loaded_model_name: str | None = None
 
 
-def experiment_lenet_variable_NPLH(
+def experiment_resnet50_variable_cifar100_NPLH(
     models_to_run: list[ModelSpec],
     pruning_policy: PruningPolicy,
     convergence_policy: TrainingConvergencePolicy,
     saliency_policies: list[SaliencyMeasurementPolicy],
     stopping_policy: NPLHStoppingPolicy,
 ) -> None:
-    """Wrapper that prepares the model based on alphas/model_name and runs the experiment."""
+    """Prepares each model and runs the NPLH experiment on CIFAR-100."""
     for spec in models_to_run:
-        if spec.alpha == None:
+        if spec.alpha is None:
             raise ValueError("Alpha cannot be None. Please provide a valid alpha value.")
 
         cfg = ConfigsNetworkMask(mask_apply_enabled=True, mask_training_enabled=False, weights_training_enabled=True)
-        model = ModelLenetVariable(spec.alpha, cfg).to(get_device())
+        model = ModelResnet50Variable(spec.alpha, cfg, num_classes=100).to(get_device())
 
-        if spec.loaded_model_name == None:
-            train_dense_lenet_mnist(model)
+        if spec.loaded_model_name is None:
+            train_dense_resnet50_cifar100(model)
         else:
             load_model_entire_dict(model, spec.loaded_model_name, BASELINE_MODELS_PATH)
 
-        nplh_lenet_mnist(
+        nplh_resnet50_cifar100(
             model=model,
             pruning_policy=pruning_policy,
             convergence_policy=convergence_policy,

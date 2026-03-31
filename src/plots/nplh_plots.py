@@ -55,23 +55,26 @@ _X_TICKS = [
 
 @dataclass
 class SeriesSpec:
-    """One CSV series to overlay on the saliency/density log-log plot.
+    """One CSV series to overlay on a saliency log-log plot.
 
     Args:
-        csv_path:    Absolute or relative path to the NPLH CSV file.
-        label:       Legend label. If None, the CSV filename stem is used.
-        saliency_col: Which saliency column to plot — 'avg_saliency' or
-                      'min_saliency'.
+        csv_path:     Absolute or relative path to the NPLH CSV file.
+        label:        Legend label. If None, the CSV filename stem is used.
+        saliency_col: Which saliency column to plot — 'avg_saliency',
+                      'avg_saliency_contributing', 'min_saliency', etc.
+        x_col:        Which column to use as X axis — 'density' or
+                      'contributing'.
     """
     csv_path: str
     label: str | None = None
     saliency_col: str = 'avg_saliency'
+    x_col: str = 'density'
 
 
 def _read_series(spec: SeriesSpec) -> tuple[list[float], list[float]]:
-    """Read (density, saliency) pairs from one CSV.
+    """Read (x, saliency) pairs from one CSV.
 
-    Points where density or saliency is <= 0 are silently dropped — they are
+    Points where x or saliency is <= 0 are silently dropped — they are
     incompatible with a log scale.  A warning is printed only if the entire
     series is empty after filtering, along with a count of how many rows were
     skipped, so the caller can tell the difference between a missing file and
@@ -82,7 +85,7 @@ def _read_series(spec: SeriesSpec) -> tuple[list[float], list[float]]:
     with open(spec.csv_path, newline='') as f:
         reader = _csv.DictReader(f)
         for row in reader:
-            x_raw = row.get('density', '').strip()
+            x_raw = row.get(spec.x_col, '').strip()
             y_raw = row.get(spec.saliency_col, '').strip()
             if not x_raw or not y_raw:
                 continue
@@ -110,17 +113,20 @@ def plot_saliency_loglog(
     series: list[SeriesSpec],
     out_path: str | None = None,
     title: str = 'NPLH: Saliency vs Density',
+    x_label: str = 'Remaining weights (%)',
     figsize: tuple[int, int] = (9, 6),
 ) -> None:
-    """Log-log plot of saliency vs remaining-weight density, one line per CSV.
+    """Log-log plot of saliency vs a density column, one line per CSV.
 
-    X axis (log, left=dense → right=sparse): remaining weights in %.
+    X axis (log, left=dense → right=sparse): density or contributing %.
     Y axis (log): saliency value (avg or min, as specified per series).
 
     Args:
-        series:   List of SeriesSpec — each specifies a CSV and its label.
+        series:   List of SeriesSpec — each specifies a CSV, its label,
+                  which saliency column to use, and which x column to use.
         out_path: If given, saves the figure to this path instead of showing.
         title:    Plot title.
+        x_label:  X axis label.
         figsize:  Figure size in inches (width, height).
     """
     fig, ax = plt.subplots(figsize=figsize)
@@ -155,7 +161,7 @@ def plot_saliency_loglog(
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f'{v:g}%'))
     ax.xaxis.set_minor_locator(mticker.NullLocator())
 
-    ax.set_xlabel('Remaining weights (%)', fontsize=AXIS_LABEL_SIZE)
+    ax.set_xlabel(x_label, fontsize=AXIS_LABEL_SIZE)
     ax.set_ylabel('Saliency', fontsize=AXIS_LABEL_SIZE)
     ax.tick_params(labelsize=TICK_LABEL_SIZE)
     ax.set_title(title, fontsize=TITLE_FONT_SIZE)

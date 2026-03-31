@@ -28,6 +28,11 @@ class LayerPrimitive(nn.Module, ABC):
 class LayerComposite(nn.Module, ABC):
     pass
 
+class ModelCustom(LayerComposite, ABC):
+    @abstractmethod
+    def get_hyperflux_loss(self) -> torch.Tensor:
+        pass
+
 @dataclass
 class ConfigsLayerLinear:
     in_features: int
@@ -250,6 +255,19 @@ def get_layers_primitive(self: LayerComposite) -> List[LayerPrimitive]:
         elif isinstance(layer, LayerComposite):
             layers.extend(get_layers_primitive(layer))
     return layers
+
+def set_mask_apply_all(self: LayerComposite, mask_apply_enabled: bool) -> None:
+    for layer in get_layers_primitive(self):
+        layer.set_mask_apply(mask_apply_enabled)
+
+def set_mask_training_all(self: LayerComposite, mask_training_enabled: bool) -> None:
+    for layer in get_layers_primitive(self):
+        layer.set_mask_training(mask_training_enabled)
+
+def set_weights_training_all(self: LayerComposite, weights_training_enabled: bool) -> None:
+    for layer in get_layers_primitive(self):
+        layer.set_weights_training(weights_training_enabled)
+
 
 def get_total_and_remaining_params(self: LayerComposite) -> tuple[int, int]:
     total, remaining = 0, 0

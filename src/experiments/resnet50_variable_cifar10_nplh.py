@@ -8,14 +8,14 @@ from src.infrastructure.context_factory import make_training_context
 from src.infrastructure.dataset_context.dataset_context import (
     DatasetSmallContext, DatasetSmallType, dataset_context_configs_cifar10,
 )
-from src.infrastructure.layers import ConfigsNetworkMask
+from src.infrastructure.layers import ConfigsNetworkMask, get_total_and_remaining_params
 from src.infrastructure.others import get_device
 from src.infrastructure.policies.pruning_policy import PruningPolicy
-from src.infrastructure.policies.saliency_measurement_policy import SaliencyMeasurementPolicy
+from src.infrastructure.policies.saliency_measurement_policy import SaliencyMeasurementPolicy, compute_network_state
 from src.infrastructure.policies.training_convergence_policy import TrainingConvergencePolicy
 from src.infrastructure.policies.nplh_stopping_policy import NPLHStoppingPolicy
 from src.infrastructure.constants import BASELINE_MODELS_PATH
-from src.model_resnet50_cifar10.model_resnet50_variable_class import ModelResnet50Variable
+from src.model_resnet50_cifars.model_resnet50_variable_class import ModelResnet50Variable
 from src.experiments.utils import get_model_density
 from src.plots.nplh_data import NplhSeries
 
@@ -35,6 +35,7 @@ def nplh_resnet50_cifar10(
     criterion = nn.CrossEntropyLoss()
 
     ctx = make_training_context(model, dataset, optimizer, criterion)
+    total_params, _ = get_total_and_remaining_params(model)
 
     series_map = {
         policy: NplhSeries(f"resnet50_cifar10_alpha{model.alpha}_{type(policy).__name__}")
@@ -56,13 +57,29 @@ def nplh_resnet50_cifar10(
 
         print(f"  [Training]  running {type(convergence_policy).__name__}...")
         acc = convergence_policy.train_until_convergence(ctx)
-        print(f"  [Training]  done — accuracy={acc:.4f}")
+        accuracy, test_loss = ctx.evaluate()
+        print(f"  [Training]  done — accuracy={acc:.4f}  loss={test_loss:.6f}")
+
+        print(f"  [Saliency]  computing network state...")
+        network_state = compute_network_state(ctx)
+        contributing = round(network_state.active_count / total_params * 100, 4)
+        print(f"  [Saliency]  present={round(network_state.present_count / total_params * 100, 4):.4f}%  active={contributing:.4f}%")
 
         print(f"  [Saliency]  measuring {len(saliency_policies)} policy/policies...")
         for policy in saliency_policies:
-            min_sal, avg_sal = policy.measure_saliency(ctx)
+            result = policy.measure_saliency(ctx, network_state)
             series = series_map[policy]
-            series.record(density, avg_sal, min_saliency=min_sal, accuracy=acc, epoch=ctx.epoch_count)
+            series.record(
+                density=density,
+                contributing=contributing,
+                avg_saliency=result.avg_saliency,
+                avg_saliency_contributing=result.avg_saliency_contributing,
+                min_saliency=result.min_saliency,
+                min_saliency_contributing=result.min_saliency_contributing,
+                accuracy=acc,
+                loss=test_loss,
+                epoch=ctx.epoch_count,
+            )
             series.save()
         print(f"  [Saliency]  done — recorded and saved")
 

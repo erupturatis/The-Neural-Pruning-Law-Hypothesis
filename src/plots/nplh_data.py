@@ -28,16 +28,25 @@ def get_process_folder() -> str:
 
 @dataclass
 class NplhSample:
-    density:      float
-    avg_saliency: float
-    min_saliency: Optional[float] = None
-    accuracy:     Optional[float] = None
-    epoch:        Optional[int]   = None
+    density:                    float
+    contributing:               float
+    avg_saliency:               float
+    avg_saliency_contributing:  float
+    min_saliency:               Optional[float] = None
+    min_saliency_contributing:  Optional[float] = None
+    accuracy:                   Optional[float] = None
+    loss:                       Optional[float] = None
+    epoch:                      Optional[int]   = None
 
 
 # ── Series ────────────────────────────────────────────────────────────────────
 
-_CSV_COLUMNS = ['density', 'min_saliency', 'avg_saliency', 'accuracy', 'epoch']
+_CSV_COLUMNS = [
+    'density', 'contributing',
+    'avg_saliency', 'avg_saliency_contributing',
+    'min_saliency', 'min_saliency_contributing',
+    'accuracy', 'loss', 'epoch',
+]
 
 
 class NplhSeries:
@@ -48,8 +57,9 @@ class NplhSeries:
     Usage:
         series = NplhSeries("lenet_magnitude")
         # inside the pruning loop:
-        min_sal, avg_sal = saliency_policy.measure_saliency(ctx)
-        series.record(density, min_sal, avg_sal, accuracy=acc, epoch=epoch)
+        state  = compute_network_state(ctx)
+        result = saliency_policy.measure_saliency(ctx, state)
+        series.record(density, contributing, result.avg_saliency, ..., accuracy=acc, epoch=epoch)
         series.save()   # safe to call after every snapshot
     """
 
@@ -66,13 +76,27 @@ class NplhSeries:
 
     def record(
         self,
-        density:      float,
-        avg_saliency: float,
-        min_saliency: Optional[float] = None,
-        accuracy:     Optional[float] = None,
-        epoch:        Optional[int]   = None,
+        density:                   float,
+        contributing:              float,
+        avg_saliency:              float,
+        avg_saliency_contributing: float,
+        min_saliency:              Optional[float] = None,
+        min_saliency_contributing: Optional[float] = None,
+        accuracy:                  Optional[float] = None,
+        loss:                      Optional[float] = None,
+        epoch:                     Optional[int]   = None,
     ) -> None:
-        self._samples.append(NplhSample(density, avg_saliency, min_saliency, accuracy, epoch))
+        self._samples.append(NplhSample(
+            density=density,
+            contributing=contributing,
+            avg_saliency=avg_saliency,
+            avg_saliency_contributing=avg_saliency_contributing,
+            min_saliency=min_saliency,
+            min_saliency_contributing=min_saliency_contributing,
+            accuracy=accuracy,
+            loss=loss,
+            epoch=epoch,
+        ))
 
     # ── Persistence ───────────────────────────────────────────────────────────
 
@@ -90,9 +114,13 @@ class NplhSeries:
             for s in self._samples:
                 writer.writerow([
                     s.density,
-                    s.min_saliency,
+                    s.contributing,
                     s.avg_saliency,
+                    s.avg_saliency_contributing,
+                    s.min_saliency,
+                    s.min_saliency_contributing,
                     '' if s.accuracy is None else s.accuracy,
+                    '' if s.loss     is None else s.loss,
                     '' if s.epoch    is None else s.epoch,
                 ])
 

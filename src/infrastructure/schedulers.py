@@ -1,3 +1,5 @@
+from abc import abstractmethod, ABC
+
 import numpy as np
 
 from src.infrastructure.configs_general import VERBOSE_SCHEDULER
@@ -18,6 +20,14 @@ def _cumulative_pruning(epochs_target, start, end, transition, late_aggressivity
     )
     return np.exp(np.log(100) + log_sum)
 
+class AbstractScheduler(ABC):
+    @abstractmethod
+    def step(self, epoch: int, current_remaining: float) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_multiplier(self) -> float:
+        raise NotImplementedError
 
 class TrajectoryCalculator:
     """Fits a sigmoid-shaped pruning curve that hits `pruning_target` remaining params at `epochs_target`."""
@@ -56,7 +66,7 @@ class TrajectoryCalculator:
 #   Increases gamma (pressure) when the network is behind the curve,
 #   decreases it when ahead. Multiplier = gamma ** EXP.
 
-class TrajectoryScheduler:
+class TrajectorySchedule(AbstractScheduler):
     def __init__(self, pressure_exponent: float, sparsity_target: float, epochs_target: int,
                  step_size: float = 0.3, aggressivity: int = 6):
         self.gamma = 0.0
@@ -106,7 +116,7 @@ class TrajectoryScheduler:
 #   than that upper-bound rate, pressure increases; otherwise it eases.
 #   Multiplier = baseline ** EXP.
 
-class UpperBoundScheduler:
+class UpperBoundScheduler(AbstractScheduler):
     def __init__(self, pressure_exponent: float, sparsity_target: float, epochs_target: int, step_size: float):
         self.baseline = 0.0
         self.EXP = pressure_exponent

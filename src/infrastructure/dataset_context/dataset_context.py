@@ -137,6 +137,10 @@ class DatasetContextAbstract(ABC):
     def get_testing_data_and_labels(self) -> Tuple[torch.Tensor, torch.Tensor]:
         pass
 
+    @abstractmethod
+    def init_data_split(self):
+        pass
+
 
 class DatasetSmallContext(DatasetContextAbstract):
     def __init__(self, dataset: DatasetSmallType, configs: DatasetContextConfigs):

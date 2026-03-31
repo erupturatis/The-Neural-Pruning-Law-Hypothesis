@@ -4,9 +4,9 @@ from typing import Callable, Optional
 
 import torch.nn as nn
 import torch.optim as optim
-from torch import Tensor
 
-from src.infrastructure.layers import LayerComposite
+from src.infrastructure.layers import LayerComposite, ModelCustom
+from src.infrastructure.schedulers import AbstractScheduler
 
 
 @dataclass
@@ -22,29 +22,27 @@ class TrainingContext:
     are fully decoupled from those details and swap freely across experiments.
     """
 
-    # ── Direct handles ────────────────────────────────────────────────────────
-    model:     LayerComposite
+    # Direct handles
+    model:     ModelCustom
     optimizer: optim.Optimizer
 
-    # ── Core training primitives (all policies that train/evaluate need these) ─
-    train_one_epoch: Callable[[], float]   # forward + backward + step →  avg training loss
-    evaluate:        Callable[[], float]   # full test-set forward pass →  accuracy
+    # Training primitives
+    # forward + backward + step
+    train_one_epoch: Callable[[], None]
+    # forward + backward + step with mask params
+    train_one_epoch_hyperflux: Optional[Callable[[AbstractScheduler, optim.Optimizer], None]]
+    # full test-set forward pass →  accuracy
+    evaluate:        Callable[[], tuple[float,float]]
 
-    # ── Gradient / curvature  (Gradient, Taylor, Hessian policies) ────────────
-    # forward + backward over training data, fills param.grad, no optimizer step
-    accumulate_gradients:     Optional[Callable[[], None]]              = None
-    # per-parameter Hessian diagonal estimates (Hutchinson or double-backprop)
-    compute_hessian_diagonal: Optional[Callable[[], dict[str, Tensor]]] = None
+    # Gradient / curvature (e.g. Gradient, Hessian policies, etc)
+    # Fisher diagonal (mean g²) is written to param._hessian_diag inside accumulate_gradients.
+    accumulate_gradients: Optional[Callable[[], None]]
+    # Custom accumulation specifically for mask parameters.
+    accumulate_mask_gradients: Optional[Callable[[], None]]
 
-    # ── Activation statistics  (APoZ and similar) ─────────────────────────────
-    # full training-set forward under torch.no_grad(); triggers registered hooks
-    run_forward: Optional[Callable[[], None]] = None
-
-    # ── Post-pruning cleanup ──────────────────────────────────────────────────
+    # Post-pruning cleanup
     # zeros optimizer moments / state entries for currently masked-out weights
-    reset_optimizer_state: Optional[Callable[[], None]] = None
+    reset_optimizer_state: Optional[Callable[[], None]]
 
-    # ── Epoch counter ─────────────────────────────────────────────────────────
-    # incremented by the factory each time train_one_epoch is called;
-    # read by NPLHEpochLimitingStoppingPolicy
+    # Epoch counter
     epoch_count: int = 0

@@ -1,5 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+
+from src.infrastructure.layers import set_mask_apply_all, set_mask_training_all, set_weights_training_all
 from src.infrastructure.training_context import TrainingContext
 
 
@@ -15,10 +17,13 @@ class FixedEpochsConvergencePolicy(TrainingConvergencePolicy):
         self.epochs = epochs
 
     def train_until_convergence(self, ctx: TrainingContext) -> float:
+        set_mask_apply_all(ctx.model, True)
+        set_mask_training_all(ctx.model, False)
+        set_weights_training_all(ctx.model, True)
         for epoch in range(1, self.epochs + 1):
             ctx.train_one_epoch()
             print(f"    epoch {epoch}/{self.epochs}")
-        acc = ctx.evaluate()
+        acc, _ = ctx.evaluate()
         return acc
 
 class UntilConvergencePolicy(TrainingConvergencePolicy):
@@ -32,7 +37,7 @@ class UntilConvergencePolicy(TrainingConvergencePolicy):
         acc_history = []
         for epoch in range(1, self.max_epochs + 1):
             ctx.train_one_epoch()
-            acc = ctx.evaluate()
+            acc, _ = ctx.evaluate()
             acc_history.append(acc)
             print(f"    epoch {epoch}/{self.max_epochs}  acc={acc:.4f}")
             if len(acc_history) >= self.window:

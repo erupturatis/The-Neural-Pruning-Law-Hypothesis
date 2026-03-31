@@ -22,7 +22,7 @@ def train_dense_lenet_mnist(model: ModelLenetVariable) -> ModelLenetVariable:
 
     for epoch in range(1, EPOCHS + 1):
         ctx.train_one_epoch()
-        acc = ctx.evaluate()
+        acc, _ = ctx.evaluate()
         print(f"  Epoch {epoch}/{EPOCHS}  acc={acc:.2f}%")
 
     save_model_entire_dict(model, f"lenet_alpha{model.alpha}_acc{acc:.1f}", BASELINE_MODELS_PATH)
