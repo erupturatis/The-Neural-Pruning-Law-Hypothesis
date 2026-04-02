@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from dataclasses import dataclass
 
 from src.common_files_experiments.load_save import load_model_entire_dict
 from src.experiments.lenet_variable_mnist_train_dense import train_dense_lenet_mnist
@@ -12,9 +13,10 @@ from src.infrastructure.policies.pruning_policy import PruningPolicy
 from src.infrastructure.policies.saliency_measurement_policy import SaliencyMeasurementPolicy, compute_network_state
 from src.infrastructure.policies.training_convergence_policy import TrainingConvergencePolicy
 from src.infrastructure.policies.nplh_stopping_policy import NPLHStoppingPolicy
-from src.infrastructure.constants import BASELINE_MODELS_PATH, PRUNED_MODELS_PATH
+from src.infrastructure.constants import BASELINE_MODELS_PATH
 from src.model_lenet.model_lenetVariable_class import ModelLenetVariable
-from src.experiments.utils import get_model_density
+import time
+from src.experiments.utils import get_model_density, timed
 from src.plots.nplh_data import NplhSeries
 
 
@@ -24,6 +26,7 @@ def nplh_lenet_mnist(
     convergence_policy: TrainingConvergencePolicy,
     saliency_policies: list[SaliencyMeasurementPolicy],
     stopping_policy: NPLHStoppingPolicy,
+    experiment_name: str,
 ):
     LR_FINETUNE = 1e-3
     MAX_ROUNDS = 1000
@@ -36,53 +39,60 @@ def nplh_lenet_mnist(
     total_params, _ = get_total_and_remaining_params(model)
 
     series_map = {
-        policy: NplhSeries(f"lenet_mnist_alpha{model.alpha}_{type(policy).__name__}")
+        policy: NplhSeries(
+            f"lenet_mnist_alpha{model.alpha}_{type(policy).__name__}",
+            experiment_folder=experiment_name,
+        )
         for policy in saliency_policies
     }
 
     for round_idx in range(1, MAX_ROUNDS + 1):
         density = get_model_density(model)
-        print(f"\n=== Round {round_idx}  |  remaining={density:.3f}% ===")
+        print(f"\n=== Round {round_idx}  |  {time.strftime('%H:%M:%S')}  |  remaining={density:.3f}% ===")
 
         if stopping_policy.stop_experiment(ctx):
             print("Stopping policy triggered.")
             break
 
         print(f"  [Pruning]   applying {type(pruning_policy).__name__}...")
-        pruning_policy.apply_pruning(ctx)
+        with timed() as t:
+            pruning_policy.apply_pruning(ctx)
         density = get_model_density(model)
-        print(f"  [Pruning]   done — density now {density:.3f}%")
+        print(f"  [Pruning]   done — density now {density:.3f}%  ({t})")
 
         print(f"  [Training]  running {type(convergence_policy).__name__}...")
-        acc = convergence_policy.train_until_convergence(ctx)
-        accuracy, test_loss = ctx.evaluate()
-        print(f"  [Training]  done — accuracy={acc:.4f}  loss={test_loss:.6f}")
+        with timed() as t:
+            acc = convergence_policy.train_until_convergence(ctx)
+            accuracy, test_loss = ctx.evaluate()
+            _, train_loss = ctx.evaluate_train()
+        print(f"  [Training]  done — accuracy={acc:.4f}  test_loss={test_loss:.6f}  train_loss={train_loss:.6f}  ({t})")
 
         print(f"  [Saliency]  computing network state...")
-        network_state = compute_network_state(ctx)
+        with timed() as t:
+            network_state = compute_network_state(ctx)
         contributing = round(network_state.active_count / total_params * 100, 4)
-        print(f"  [Saliency]  present={round(network_state.present_count / total_params * 100, 4):.4f}%  active={contributing:.4f}%")
+        print(f"  [Saliency]  present={round(network_state.present_count / total_params * 100, 4):.4f}%  active={contributing:.4f}%  ({t})")
 
         print(f"  [Saliency]  measuring {len(saliency_policies)} policy/policies...")
-        for policy in saliency_policies:
-            result = policy.measure_saliency(ctx, network_state)
-            series = series_map[policy]
-            series.record(
-                density=density,
-                contributing=contributing,
-                avg_saliency=result.avg_saliency,
-                avg_saliency_contributing=result.avg_saliency_contributing,
-                min_saliency=result.min_saliency,
-                min_saliency_contributing=result.min_saliency_contributing,
-                accuracy=acc,
-                loss=test_loss,
-                epoch=ctx.epoch_count,
-            )
-            series.save()
-        print(f"  [Saliency]  done — recorded and saved")
+        with timed() as t:
+            for policy in saliency_policies:
+                result = policy.measure_saliency(ctx, network_state)
+                series = series_map[policy]
+                series.record(
+                    density=density,
+                    contributing=contributing,
+                    avg_saliency=result.avg_saliency,
+                    avg_saliency_contributing=result.avg_saliency_contributing,
+                    min_saliency=result.min_saliency,
+                    min_saliency_contributing=result.min_saliency_contributing,
+                    accuracy=acc,
+                    test_loss=test_loss,
+                    train_loss=train_loss,
+                    epoch=ctx.epoch_count,
+                )
+                series.save()
+        print(f"  [Saliency]  done — recorded and saved  ({t})")
 
-
-from dataclasses import dataclass
 
 @dataclass
 class ModelSpec:
@@ -96,16 +106,17 @@ def experiment_lenet_variable_NPLH(
     convergence_policy: TrainingConvergencePolicy,
     saliency_policies: list[SaliencyMeasurementPolicy],
     stopping_policy: NPLHStoppingPolicy,
+    experiment_name: str,
 ) -> None:
     """Wrapper that prepares the model based on alphas/model_name and runs the experiment."""
     for spec in models_to_run:
-        if spec.alpha == None:
+        if spec.alpha is None:
             raise ValueError("Alpha cannot be None. Please provide a valid alpha value.")
 
         cfg = ConfigsNetworkMask(mask_apply_enabled=True, mask_training_enabled=False, weights_training_enabled=True)
         model = ModelLenetVariable(spec.alpha, cfg).to(get_device())
 
-        if spec.loaded_model_name == None:
+        if spec.loaded_model_name is None:
             train_dense_lenet_mnist(model)
         else:
             load_model_entire_dict(model, spec.loaded_model_name, BASELINE_MODELS_PATH)
@@ -116,4 +127,5 @@ def experiment_lenet_variable_NPLH(
             convergence_policy=convergence_policy,
             saliency_policies=saliency_policies,
             stopping_policy=stopping_policy,
+            experiment_name=experiment_name,
         )

@@ -29,19 +29,33 @@ class FixedEpochsConvergencePolicy(TrainingConvergencePolicy):
 class UntilConvergencePolicy(TrainingConvergencePolicy):
     # uses: ctx.train_one_epoch, ctx.evaluate
     def __init__(self, window: int, tol: float, max_epochs: int):
-        self.window = window
-        self.tol = tol
+        self.window = window        # Acts as "patience" (epochs to wait)
+        self.tol = tol              # Minimum meaningful improvement
         self.max_epochs = max_epochs
 
     def train_until_convergence(self, ctx: TrainingContext) -> float:
-        acc_history = []
+        best_acc = 0.0
+        epochs_without_improvement = 0
+        last_acc = 0.0
+
         for epoch in range(1, self.max_epochs + 1):
             ctx.train_one_epoch()
             acc, _ = ctx.evaluate()
-            acc_history.append(acc)
-            print(f"    epoch {epoch}/{self.max_epochs}  acc={acc:.4f}")
-            if len(acc_history) >= self.window:
-                recent = acc_history[-self.window:]
-                if max(recent) - min(recent) < self.tol:
-                    return acc
-        return acc_history[-1] if acc_history else 0.0
+            last_acc = acc
+
+            # Check if current accuracy beats the best recorded accuracy by at least the tolerance
+            if acc >= best_acc + self.tol:
+                best_acc = acc
+                epochs_without_improvement = 0
+                print(f"    epoch {epoch}/{self.max_epochs}  acc={acc:.4f}  (New Best!)")
+            else:
+                epochs_without_improvement += 1
+                print(f"    epoch {epoch}/{self.max_epochs}  acc={acc:.4f}  (Patience: {epochs_without_improvement}/{self.window})")
+
+            # Trigger convergence if the window of patience is exhausted
+            if epochs_without_improvement >= self.window:
+                print(f"    [Convergence] Reached plateau. No improvement > {self.tol}% for {self.window} epochs.")
+                return best_acc
+
+        print(f"    [Convergence] Hit maximum limit of {self.max_epochs} epochs.")
+        return last_acc

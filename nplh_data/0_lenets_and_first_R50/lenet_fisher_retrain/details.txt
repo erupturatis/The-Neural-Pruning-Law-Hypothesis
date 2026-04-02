@@ -1,0 +1,9 @@
+Experiment:   lenet_fisher_retrain
+Date:         2026-04-01
+Model:        LeNet-300 (alpha=1.0)
+Dataset:      MNIST
+Pruning:      HessianPruningPolicy (diagonal Fisher)  rate=5.0%
+Convergence:  UntilConvergencePolicy(window=10, tol=0.1, max_epochs=200)
+Stopping:     NPLHDensityLimitStoppingPolicy  threshold=0.1%
+Saliency:     Magnitude, Gradient, Taylor, Hessian, NeuronActivationFreq
+Description:  Fisher/Hessian pruning with retraining to convergence after each round.

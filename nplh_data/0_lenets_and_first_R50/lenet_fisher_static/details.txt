@@ -1,0 +1,9 @@
+Experiment:   lenet_fisher_static
+Date:         2026-04-01
+Model:        LeNet-300 (alpha=1.0)
+Dataset:      MNIST
+Pruning:      HessianPruningPolicy (diagonal Fisher)  rate=5.0%
+Convergence:  FixedEpochsConvergencePolicy(epochs=0) — no retraining
+Stopping:     NPLHDensityLimitStoppingPolicy  threshold=0.1%
+Saliency:     Magnitude, Gradient, Taylor, Hessian, NeuronActivationFreq
+Description:  Fisher/Hessian pruning without retraining. Diagonal Fisher approximation (0.5 * H_ii * w_i^2) with no fine-tuning.

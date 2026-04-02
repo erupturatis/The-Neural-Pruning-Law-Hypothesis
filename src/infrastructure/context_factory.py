@@ -93,6 +93,36 @@ def _evaluate(model: ModelCustom, dataset: DatasetContextAbstract, criterion: nn
 
     return accuracy, avg_loss
 
+def _evaluate_train(model: ModelCustom, dataset: DatasetContextAbstract, criterion: nn.Module) -> tuple[float, float]:
+    """
+    Evaluates the model on the training set.
+    Returns:
+        tuple[float, float]: (accuracy, loss)
+    """
+    set_mask_apply_all(model, True)
+    set_mask_training_all(model, False)
+    set_weights_training_all(model, True)
+
+    model.eval()
+    dataset.init_data_split()
+    correct = 0
+    total_loss = 0.0
+    n_batches = 0
+
+    with torch.no_grad():
+        while dataset.any_data_training_available():
+            data, target = dataset.get_training_data_and_labels()
+            out = model(data)
+            correct += out.argmax(dim=1).eq(target).sum().item()
+            total_loss += criterion(out, target).item()
+            n_batches += 1
+
+    accuracy = 100.0 * correct / dataset.get_data_training_length()
+    avg_loss = total_loss / max(n_batches, 1)
+
+    return accuracy, avg_loss
+
+
 def _accumulate_gradients(model: ModelCustom, dataset: DatasetContextAbstract,
                           optimizer: optim.Optimizer, criterion: nn.Module,
                           n_batches: int | None) -> None:
@@ -234,6 +264,7 @@ def make_training_context(
         train_one_epoch=lambda: None,
         train_one_epoch_hyperflux=lambda sched, optim: None,
         evaluate=lambda: _evaluate(model, dataset, criterion),
+        evaluate_train=lambda: _evaluate_train(model, dataset, criterion),
         accumulate_gradients=lambda: _accumulate_gradients(
             model, dataset, optimizer, criterion, gradient_batches
         ),

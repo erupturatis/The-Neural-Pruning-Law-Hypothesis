@@ -31,8 +31,10 @@ class TrainingContext:
     train_one_epoch: Callable[[], None]
     # forward + backward + step with mask params
     train_one_epoch_hyperflux: Optional[Callable[[AbstractScheduler, optim.Optimizer], None]]
-    # full test-set forward pass →  accuracy
+    # full test-set forward pass → (accuracy, loss)
     evaluate:        Callable[[], tuple[float,float]]
+    # full train-set forward pass → (accuracy, loss)
+    evaluate_train:  Callable[[], tuple[float,float]]
 
     # Gradient / curvature (e.g. Gradient, Hessian policies, etc)
     # Fisher diagonal (mean g²) is written to param._hessian_diag inside accumulate_gradients.

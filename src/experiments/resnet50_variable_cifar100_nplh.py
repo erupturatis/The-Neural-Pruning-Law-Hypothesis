@@ -26,6 +26,7 @@ def nplh_resnet50_cifar100(
     convergence_policy: TrainingConvergencePolicy,
     saliency_policies: list[SaliencyMeasurementPolicy],
     stopping_policy: NPLHStoppingPolicy,
+    experiment_name: str,
 ):
     LR_FINETUNE = 1e-3
     MAX_ROUNDS = 1000
@@ -38,7 +39,10 @@ def nplh_resnet50_cifar100(
     total_params, _ = get_total_and_remaining_params(model)
 
     series_map = {
-        policy: NplhSeries(f"resnet50_cifar100_alpha{model.alpha}_{type(policy).__name__}")
+        policy: NplhSeries(
+            f"resnet50_cifar100_alpha{model.alpha}_{type(policy).__name__}",
+            experiment_folder=experiment_name,
+        )
         for policy in saliency_policies
     }
 
@@ -58,7 +62,8 @@ def nplh_resnet50_cifar100(
         print(f"  [Training]  running {type(convergence_policy).__name__}...")
         acc = convergence_policy.train_until_convergence(ctx)
         accuracy, test_loss = ctx.evaluate()
-        print(f"  [Training]  done — accuracy={acc:.4f}  loss={test_loss:.6f}")
+        _, train_loss = ctx.evaluate_train()
+        print(f"  [Training]  done — accuracy={acc:.4f}  test_loss={test_loss:.6f}  train_loss={train_loss:.6f}")
 
         print(f"  [Saliency]  computing network state...")
         network_state = compute_network_state(ctx)
@@ -77,7 +82,8 @@ def nplh_resnet50_cifar100(
                 min_saliency=result.min_saliency,
                 min_saliency_contributing=result.min_saliency_contributing,
                 accuracy=acc,
-                loss=test_loss,
+                test_loss=test_loss,
+                train_loss=train_loss,
                 epoch=ctx.epoch_count,
             )
             series.save()
@@ -96,6 +102,7 @@ def experiment_resnet50_variable_cifar100_NPLH(
     convergence_policy: TrainingConvergencePolicy,
     saliency_policies: list[SaliencyMeasurementPolicy],
     stopping_policy: NPLHStoppingPolicy,
+    experiment_name: str,
 ) -> None:
     """Prepares each model and runs the NPLH experiment on CIFAR-100."""
     for spec in models_to_run:
@@ -116,4 +123,5 @@ def experiment_resnet50_variable_cifar100_NPLH(
             convergence_policy=convergence_policy,
             saliency_policies=saliency_policies,
             stopping_policy=stopping_policy,
+            experiment_name=experiment_name,
         )

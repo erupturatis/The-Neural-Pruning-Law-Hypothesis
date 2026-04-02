@@ -12,16 +12,30 @@ from src.infrastructure.others import prefix_path_with_root
 
 
 # ── Process-level identifier ──────────────────────────────────────────────────
-# Generated once at import time. All series created in this process are saved
-# under nplh_data/{_PROCESS_ID}/ so runs never collide and are easy to group.
+# If NPLH_PROCESS_ID is set in the environment (e.g. by run_nplh_experiments.py
+# before spawning child processes) all experiments in the same run share one
+# output folder. Otherwise a fresh ID is generated — safe for standalone use.
 
-_PROCESS_ID = time.strftime('%Y%m%d_%H%M_') + ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+_PROCESS_ID = os.environ.get("NPLH_PROCESS_ID") or (
+    time.strftime('%Y%m%d_%H%M_') + ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+)
 
 NPLH_DATA_FOLDER = 'nplh_data'
 
 
 def get_process_folder() -> str:
     return os.path.join(prefix_path_with_root(NPLH_DATA_FOLDER), _PROCESS_ID)
+
+
+def write_experiment_details(experiment_folder: str, content: str) -> None:
+    """
+    Writes a details.txt file into the experiment's subfolder.
+    Creates the folder if it does not yet exist.
+    """
+    folder = os.path.join(get_process_folder(), experiment_folder)
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "details.txt"), "w") as f:
+        f.write(content)
 
 
 # ── Sample ────────────────────────────────────────────────────────────────────
@@ -35,7 +49,8 @@ class NplhSample:
     min_saliency:               Optional[float] = None
     min_saliency_contributing:  Optional[float] = None
     accuracy:                   Optional[float] = None
-    loss:                       Optional[float] = None
+    test_loss:                  Optional[float] = None
+    train_loss:                 Optional[float] = None
     epoch:                      Optional[int]   = None
 
 
@@ -45,17 +60,17 @@ _CSV_COLUMNS = [
     'density', 'contributing',
     'avg_saliency', 'avg_saliency_contributing',
     'min_saliency', 'min_saliency_contributing',
-    'accuracy', 'loss', 'epoch',
+    'accuracy', 'test_loss', 'train_loss', 'epoch',
 ]
 
 
 class NplhSeries:
     """
     Records NPLH snapshots for one experimental series and persists them
-    incrementally to a CSV file.
+    incrementally to a CSV file inside the experiment's subfolder.
 
     Usage:
-        series = NplhSeries("lenet_magnitude")
+        series = NplhSeries("lenet_magnitude", experiment_folder="lenet_magnitude_retrain")
         # inside the pruning loop:
         state  = compute_network_state(ctx)
         result = saliency_policy.measure_saliency(ctx, state)
@@ -63,14 +78,18 @@ class NplhSeries:
         series.save()   # safe to call after every snapshot
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, experiment_folder: str = ""):
         self.name = name
         self._samples: list[NplhSample] = []
 
         timestamp = time.strftime('%Y%m%d_%H%M%S')
         short_id  = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
         filename  = f"{name}_{timestamp}_{short_id}.csv"
-        self._filepath = os.path.join(get_process_folder(), filename)
+
+        if experiment_folder:
+            self._filepath = os.path.join(get_process_folder(), experiment_folder, filename)
+        else:
+            self._filepath = os.path.join(get_process_folder(), filename)
 
     # ── Recording ─────────────────────────────────────────────────────────────
 
@@ -83,7 +102,8 @@ class NplhSeries:
         min_saliency:              Optional[float] = None,
         min_saliency_contributing: Optional[float] = None,
         accuracy:                  Optional[float] = None,
-        loss:                      Optional[float] = None,
+        test_loss:                 Optional[float] = None,
+        train_loss:                Optional[float] = None,
         epoch:                     Optional[int]   = None,
     ) -> None:
         self._samples.append(NplhSample(
@@ -94,7 +114,8 @@ class NplhSeries:
             min_saliency=min_saliency,
             min_saliency_contributing=min_saliency_contributing,
             accuracy=accuracy,
-            loss=loss,
+            test_loss=test_loss,
+            train_loss=train_loss,
             epoch=epoch,
         ))
 
@@ -119,9 +140,10 @@ class NplhSeries:
                     s.avg_saliency_contributing,
                     s.min_saliency,
                     s.min_saliency_contributing,
-                    '' if s.accuracy is None else s.accuracy,
-                    '' if s.loss     is None else s.loss,
-                    '' if s.epoch    is None else s.epoch,
+                    '' if s.accuracy   is None else s.accuracy,
+                    '' if s.test_loss  is None else s.test_loss,
+                    '' if s.train_loss is None else s.train_loss,
+                    '' if s.epoch      is None else s.epoch,
                 ])
 
     # ── Helpers ───────────────────────────────────────────────────────────────

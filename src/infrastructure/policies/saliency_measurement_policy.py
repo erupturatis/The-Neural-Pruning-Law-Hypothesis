@@ -39,6 +39,13 @@ class NetworkState:
       active_neurons  — bool [n_out] per layer; True if the neuron ever fired (output > 0)
                         across all samples in the gradient-accumulation pass.
       activation_freq — float [n_out] per layer; fraction of samples where output > 0.
+
+    Cached gradients (set by compute_network_state, reused by saliency policies):
+      weight_grads   — per-layer clone of param.grad from the accumulation pass.
+      hessian_diags  — per-layer clone of param._hessian_diag from the same pass.
+      Both are None if the layer had no gradient / no hessian diagonal.
+      Gradient-based saliency policies read these instead of re-running
+      accumulate_gradients(), saving 3 full forward+backward passes per round.
     """
     total_count:     int
     present_count:   int
@@ -47,6 +54,8 @@ class NetworkState:
     active_masks:    list[torch.Tensor]
     active_neurons:  list[torch.Tensor]
     activation_freq: list[torch.Tensor]
+    weight_grads:    list[torch.Tensor | None]
+    hessian_diags:   list[torch.Tensor | None]
 
 
 def compute_network_state(ctx: TrainingContext) -> NetworkState:
@@ -84,6 +93,8 @@ def compute_network_state(ctx: TrainingContext) -> NetworkState:
     active_masks:    list[torch.Tensor] = []
     active_neurons:  list[torch.Tensor] = []
     activation_freq: list[torch.Tensor] = []
+    weight_grads:    list[torch.Tensor | None] = []
+    hessian_diags:   list[torch.Tensor | None] = []
     total_count = present_count = active_count = 0
 
     for i, layer in enumerate(layers):
@@ -106,6 +117,13 @@ def compute_network_state(ctx: TrainingContext) -> NetworkState:
         activation_freq.append(freq)
         active_neurons.append(freq > 0)
 
+        # Clone gradients before _restore_grads wipes them so saliency policies
+        # can reuse them without a second accumulation pass.
+        weight_grads.append(w.grad.detach().clone())
+        hessian_diags.append(
+            w._hessian_diag.detach().clone() if hasattr(w, '_hessian_diag') else None
+        )
+
     _restore_grads(ctx.model, saved_grads)
     ctx.model.train()
 
@@ -117,6 +135,8 @@ def compute_network_state(ctx: TrainingContext) -> NetworkState:
         active_masks=active_masks,
         active_neurons=active_neurons,
         activation_freq=activation_freq,
+        weight_grads=weight_grads,
+        hessian_diags=hessian_diags,
     )
 
 
@@ -179,11 +199,25 @@ def _gradient_based_saliency(
 ) -> SaliencyResult:
     """
     Shared skeleton for gradient-pass saliency policies.
-    score_fn(layer, i) -> Tensor: per-weight scores (called after accumulate_gradients).
+    score_fn(layer, i) -> Tensor: per-weight scores; param.grad is available.
+
+    If state.weight_grads is populated (always the case when compute_network_state
+    was used), gradients are written directly onto param.grad from the cache and no
+    new accumulation pass is run.  Otherwise falls back to ctx.accumulate_gradients().
     """
     saved_grads = _save_grads(ctx.model)
-    ctx.accumulate_gradients()
     layers = get_layers_primitive(ctx.model)
+
+    if state.weight_grads is not None:
+        # Reuse gradients cached by compute_network_state — no extra GPU pass needed.
+        for i, layer in enumerate(layers):
+            w = getattr(layer, WEIGHTS_ATTR)
+            w.grad = state.weight_grads[i].clone()
+            if state.hessian_diags[i] is not None:
+                w._hessian_diag = state.hessian_diags[i].clone()
+    else:
+        ctx.accumulate_gradients()
+
     present_scores = _collect(layers, state.present_masks, transform=score_fn)
     active_scores  = _collect(layers, state.active_masks,  transform=score_fn)
     _restore_grads(ctx.model, saved_grads)

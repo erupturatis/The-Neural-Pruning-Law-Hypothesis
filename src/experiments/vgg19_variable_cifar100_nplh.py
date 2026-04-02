@@ -16,7 +16,8 @@ from src.infrastructure.policies.training_convergence_policy import TrainingConv
 from src.infrastructure.policies.nplh_stopping_policy import NPLHStoppingPolicy
 from src.infrastructure.constants import BASELINE_MODELS_PATH
 from src.model_vgg19_cifars.model_vgg19_variable_class import ModelVGG19Variable
-from src.experiments.utils import get_model_density
+import time
+from src.experiments.utils import get_model_density, timed
 from src.plots.nplh_data import NplhSeries
 
 
@@ -26,6 +27,7 @@ def nplh_vgg19_cifar100(
     convergence_policy: TrainingConvergencePolicy,
     saliency_policies: list[SaliencyMeasurementPolicy],
     stopping_policy: NPLHStoppingPolicy,
+    experiment_name: str,
 ):
     LR_FINETUNE = 1e-3
     MAX_ROUNDS = 1000
@@ -38,50 +40,59 @@ def nplh_vgg19_cifar100(
     total_params, _ = get_total_and_remaining_params(model)
 
     series_map = {
-        policy: NplhSeries(f"vgg19_cifar100_alpha{model.alpha}_{type(policy).__name__}")
+        policy: NplhSeries(
+            f"vgg19_cifar100_alpha{model.alpha}_{type(policy).__name__}",
+            experiment_folder=experiment_name,
+        )
         for policy in saliency_policies
     }
 
     for round_idx in range(1, MAX_ROUNDS + 1):
         density = get_model_density(model)
-        print(f"\n=== Round {round_idx}  |  remaining={density:.3f}% ===")
+        print(f"\n=== Round {round_idx}  |  {time.strftime('%H:%M:%S')}  |  remaining={density:.3f}% ===")
 
         if stopping_policy.stop_experiment(ctx):
             print("Stopping policy triggered.")
             break
 
         print(f"  [Pruning]   applying {type(pruning_policy).__name__}...")
-        pruning_policy.apply_pruning(ctx)
+        with timed() as t:
+            pruning_policy.apply_pruning(ctx)
         density = get_model_density(model)
-        print(f"  [Pruning]   done — density now {density:.3f}%")
+        print(f"  [Pruning]   done — density now {density:.3f}%  ({t})")
 
         print(f"  [Training]  running {type(convergence_policy).__name__}...")
-        acc = convergence_policy.train_until_convergence(ctx)
-        accuracy, test_loss = ctx.evaluate()
-        print(f"  [Training]  done — accuracy={acc:.4f}  loss={test_loss:.6f}")
+        with timed() as t:
+            acc = convergence_policy.train_until_convergence(ctx)
+            accuracy, test_loss = ctx.evaluate()
+            _, train_loss = ctx.evaluate_train()
+        print(f"  [Training]  done — accuracy={acc:.4f}  test_loss={test_loss:.6f}  train_loss={train_loss:.6f}  ({t})")
 
         print(f"  [Saliency]  computing network state...")
-        network_state = compute_network_state(ctx)
+        with timed() as t:
+            network_state = compute_network_state(ctx)
         contributing = round(network_state.active_count / total_params * 100, 4)
-        print(f"  [Saliency]  present={round(network_state.present_count / total_params * 100, 4):.4f}%  active={contributing:.4f}%")
+        print(f"  [Saliency]  present={round(network_state.present_count / total_params * 100, 4):.4f}%  active={contributing:.4f}%  ({t})")
 
         print(f"  [Saliency]  measuring {len(saliency_policies)} policy/policies...")
-        for policy in saliency_policies:
-            result = policy.measure_saliency(ctx, network_state)
-            series = series_map[policy]
-            series.record(
-                density=density,
-                contributing=contributing,
-                avg_saliency=result.avg_saliency,
-                avg_saliency_contributing=result.avg_saliency_contributing,
-                min_saliency=result.min_saliency,
-                min_saliency_contributing=result.min_saliency_contributing,
-                accuracy=acc,
-                loss=test_loss,
-                epoch=ctx.epoch_count,
-            )
-            series.save()
-        print(f"  [Saliency]  done — recorded and saved")
+        with timed() as t:
+            for policy in saliency_policies:
+                result = policy.measure_saliency(ctx, network_state)
+                series = series_map[policy]
+                series.record(
+                    density=density,
+                    contributing=contributing,
+                    avg_saliency=result.avg_saliency,
+                    avg_saliency_contributing=result.avg_saliency_contributing,
+                    min_saliency=result.min_saliency,
+                    min_saliency_contributing=result.min_saliency_contributing,
+                    accuracy=acc,
+                    test_loss=test_loss,
+                    train_loss=train_loss,
+                    epoch=ctx.epoch_count,
+                )
+                series.save()
+        print(f"  [Saliency]  done — recorded and saved  ({t})")
 
 
 @dataclass
@@ -96,6 +107,7 @@ def experiment_vgg19_variable_cifar100_NPLH(
     convergence_policy: TrainingConvergencePolicy,
     saliency_policies: list[SaliencyMeasurementPolicy],
     stopping_policy: NPLHStoppingPolicy,
+    experiment_name: str,
 ) -> None:
     """Prepares each model and runs the NPLH experiment on CIFAR-100."""
     for spec in models_to_run:
@@ -116,4 +128,5 @@ def experiment_vgg19_variable_cifar100_NPLH(
             convergence_policy=convergence_policy,
             saliency_policies=saliency_policies,
             stopping_policy=stopping_policy,
+            experiment_name=experiment_name,
         )

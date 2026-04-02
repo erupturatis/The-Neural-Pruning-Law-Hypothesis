@@ -1,0 +1,9 @@
+Experiment:   resnet50_magnitude_retrain
+Date:         2026-04-02
+Model:        ResNet-50 (alpha=1.0)
+Dataset:      CIFAR-10
+Pruning:      MagnitudePruningPolicy  rate=10.0%
+Convergence:  UntilConvergencePolicy(window=10, tol=0.1, max_epochs=200)
+Stopping:     NPLHDensityLimitStoppingPolicy  threshold=0.01%
+Saliency:     Magnitude, Gradient, Taylor, Hessian, NeuronActivationFreq
+Description:  Magnitude pruning with retraining to convergence on pretrained ResNet-50/CIFAR-10.
