@@ -1,0 +1,11 @@
+Pearson correlation of avg_saliency_contributing
+Folder : vgg19_random_fixedepoch
+Filter : contributing > 1.0%  (19 data points)
+
+           Magnitude  Gradient    Taylor   Hessian  NeuronAF
+------------------------------------------------------------
+Magnitude     1.0000    0.5165    0.5499    0.5352   -0.8586
+Gradient      0.5165    1.0000    0.9992    0.9622   -0.0544
+Taylor        0.5499    0.9992    1.0000    0.9639   -0.0937
+Hessian       0.5352    0.9622    0.9639    1.0000   -0.0903
+NeuronAF     -0.8586   -0.0544   -0.0937   -0.0903    1.0000

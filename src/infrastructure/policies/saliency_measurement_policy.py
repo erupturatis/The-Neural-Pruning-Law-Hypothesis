@@ -7,6 +7,7 @@ from src.infrastructure.training_context import TrainingContext
 from src.infrastructure.constants import WEIGHTS_ATTR, MASK_ATTR, GRADIENT_IDENTITY_SCALER
 from src.infrastructure.layers import (
     get_layers_primitive,
+    get_prunable_layers,
     set_mask_apply_all,
     set_mask_training_all,
     set_weights_training_all,
@@ -65,7 +66,7 @@ def compute_network_state(ctx: TrainingContext) -> NetworkState:
     frequencies without an extra forward-only pass.
     Saves and restores param.grad so downstream training is undisturbed.
     """
-    layers = get_layers_primitive(ctx.model)
+    layers = get_prunable_layers(ctx.model)
 
     fire_count    = [None] * len(layers)
     sample_counts = [0]    * len(layers)
@@ -179,7 +180,7 @@ def _print_saliency(name: str, avg_present: float, avg_active: float, state: Net
 
 class MagnitudeSaliencyMeasurementPolicy(SaliencyMeasurementPolicy):
     def measure_saliency(self, ctx: TrainingContext, state: NetworkState) -> SaliencyResult:
-        layers = get_layers_primitive(ctx.model)
+        layers = get_prunable_layers(ctx.model)
         present_mag = _collect(layers, state.present_masks)
         active_mag  = _collect(layers, state.active_masks)
 
@@ -206,7 +207,7 @@ def _gradient_based_saliency(
     new accumulation pass is run.  Otherwise falls back to ctx.accumulate_gradients().
     """
     saved_grads = _save_grads(ctx.model)
-    layers = get_layers_primitive(ctx.model)
+    layers = get_prunable_layers(ctx.model)
 
     if state.weight_grads is not None:
         # Reuse gradients cached by compute_network_state — no extra GPU pass needed.
@@ -317,8 +318,8 @@ class HyperfluxSampleEstimationSaliencyMeasurementPolicy(SaliencyMeasurementPoli
 
     def measure_saliency(self, ctx: TrainingContext, state: NetworkState) -> SaliencyResult:
         saved_grads = _save_grads(ctx.model)
-        layers = get_layers_primitive(ctx.model)
-        
+        layers = get_prunable_layers(ctx.model)
+
         # We'll accumulate scores and counts per layer
         accumulated_scores = [torch.zeros_like(getattr(l, MASK_ATTR).data) for l in layers]
         sample_counts = [torch.zeros_like(getattr(l, MASK_ATTR).data) for l in layers]

@@ -1,18 +1,20 @@
 """
-Plot static vs retrain comparison for one pruning method.
+Plot retrain-only results using contributing weights as x-axis.
 
-Produces 6 images:
-  - One per saliency measurement (5 total): static line vs retrain line.
-  - One combined plot with all 10 lines (5 saliencies × 2 conditions).
+Produces 8 images per run:
+  - 5 per-saliency plots (avg_saliency_contributing vs contributing density)
+  - 3 metric plots: accuracy, test_loss, train_loss vs contributing density
+
+X-axis is cut at 1% (data below 1% contributing density is not shown).
+No static comparison, no background metrics.
 
 Usage
 -----
     python src/plots/plot_static_vs_retrain.py \\
-        --static  nplh_data/run_id/lenet_random_static \\
         --retrain nplh_data/run_id/lenet_random_retrain \\
-        --out     plots_output/random_pruning
+        --out     plots_output/lenet_random_retrain
 
-    # --out defaults to a 'plots/' subfolder next to the static folder.
+    # --out defaults to a 'plots/' subfolder inside --retrain.
 """
 
 from __future__ import annotations
@@ -26,11 +28,10 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
-from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 
 
-# ── Saliency class name → short display name ──────────────────────────────────
+# ── Saliency class name → display / file slug ─────────────────────────────────
 
 SALIENCY_CLASSES = [
     "MagnitudeSaliencyMeasurementPolicy",
@@ -56,21 +57,29 @@ FILE_SLUG = {
     "NeuronActivationFrequencyPolicy":    "neuron",
 }
 
-# One colour per saliency type (used in the combined plot).
 _COLOURS = plt.get_cmap("tab10").colors
 SALIENCY_COLOUR = {cls: _COLOURS[i] for i, cls in enumerate(SALIENCY_CLASSES)}
 
-# X-axis tick positions (%).
-_X_TICKS = [
-    0.05, 0.1, 0.2, 0.4, 0.5,
-    1, 2, 3, 5, 7, 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 95,
-]
+_METRIC_LABEL = {
+    "accuracy":   "Accuracy (%)",
+    "test_loss":  "Test loss",
+    "train_loss": "Train loss",
+}
+_METRIC_COLOUR = {
+    "accuracy":   "forestgreen",
+    "test_loss":  "mediumpurple",
+    "train_loss": "chocolate",
+}
+
+# X-axis ticks shown.
+_X_TICKS = [0.05, 0.1, 0.2, 0.4, 0.5, 1, 2, 3, 5, 7, 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 95]
+
+X_MIN = 0.0   # no cut-off: show full range
 
 
 # ── CSV helpers ───────────────────────────────────────────────────────────────
 
 def _identify_saliency(filename: str) -> str | None:
-    """Return the saliency class name embedded in *filename*, or None."""
     for cls in SALIENCY_CLASSES:
         if cls in filename:
             return cls
@@ -78,11 +87,6 @@ def _identify_saliency(filename: str) -> str | None:
 
 
 def _scan_folder(folder: str) -> dict[str, str]:
-    """
-    Return {saliency_class: csv_path} for all recognised CSVs in *folder*.
-    If multiple CSVs share the same saliency class, the last one found is used
-    (filenames are sorted so the most recent timestamp wins).
-    """
     result: dict[str, str] = {}
     folder_path = Path(folder)
     if not folder_path.is_dir():
@@ -95,92 +99,120 @@ def _scan_folder(folder: str) -> dict[str, str]:
     return result
 
 
-def _read_xy(csv_path: str, x_col: str = "density",
-             y_col: str = "avg_saliency") -> tuple[np.ndarray, np.ndarray]:
+def _read_csv(csv_path: str,
+              x_col: str = "contributing",
+              y_col: str = "avg_saliency_contributing") -> dict:
     """
-    Read (x, y) pairs from a CSV.  Rows where either value is <= 0 are dropped
-    (incompatible with log scale).  Returns arrays sorted dense → sparse
-    (descending x).
+    Read (x, y) and metric columns from a CSV, filtering x < X_MIN.
+    Returns:
+      xs, ys          — saliency series (x >= X_MIN, y > 0, dense→sparse)
+      bg_xs           — x values for metrics (x >= X_MIN, dense→sparse)
+      accuracy, test_loss, train_loss — parallel to bg_xs
     """
-    xs, ys = [], []
+    def _f(s: str) -> float:
+        try:
+            return float(s) if s else float("nan")
+        except ValueError:
+            return float("nan")
+
+    xs_raw, ys_raw = [], []
+    bg_xs_raw: list[float] = []
+    acc_raw, tl_raw, trl_raw = [], [], []
+
     with open(csv_path, newline="") as f:
         for row in csv.DictReader(f):
-            x_raw = row.get(x_col, "").strip()
-            y_raw = row.get(y_col, "").strip()
-            if not x_raw or not y_raw:
+            x_str = row.get(x_col, "").strip()
+            if not x_str:
                 continue
             try:
-                x, y = float(x_raw), float(y_raw)
+                x = float(x_str)
             except ValueError:
                 continue
-            if x > 0 and y > 0:
-                xs.append(x)
-                ys.append(y)
-    if not xs:
-        return np.array([]), np.array([])
-    xs_np = np.array(xs)
-    ys_np = np.array(ys)
-    order = np.argsort(xs_np)[::-1]   # dense → sparse
-    return xs_np[order], ys_np[order]
+            if x <= 0:
+                continue
+
+            bg_xs_raw.append(x)
+            acc_raw.append(_f(row.get("accuracy", "")))
+            tl_raw.append(_f(row.get("test_loss", "")))
+            trl_raw.append(_f(row.get("train_loss", "")))
+
+            y_str = row.get(y_col, "").strip()
+            try:
+                y = float(y_str)
+                if y > 0:
+                    xs_raw.append(x)
+                    ys_raw.append(y)
+            except ValueError:
+                pass
+
+    if bg_xs_raw:
+        order = np.argsort(np.array(bg_xs_raw))[::-1]
+        bg_xs   = np.array(bg_xs_raw)[order]
+        acc_np  = np.array(acc_raw)[order]
+        tl_np   = np.array(tl_raw)[order]
+        trl_np  = np.array(trl_raw)[order]
+    else:
+        bg_xs = acc_np = tl_np = trl_np = np.array([])
+
+    if xs_raw:
+        order = np.argsort(np.array(xs_raw))[::-1]
+        xs = np.array(xs_raw)[order]
+        ys = np.array(ys_raw)[order]
+    else:
+        xs = ys = np.array([])
+
+    return {
+        "xs": xs, "ys": ys,
+        "bg_xs": bg_xs,
+        "accuracy": acc_np, "test_loss": tl_np, "train_loss": trl_np,
+    }
 
 
 # ── Shared axis styling ────────────────────────────────────────────────────────
 
-def _style_ax(ax: plt.Axes, title: str, x_label: str = "Remaining weights (%)") -> None:
+def _style_ax(ax: plt.Axes, title: str, y_label: str, x_label: str,
+              log_y: bool = True) -> None:
     ax.set_xscale("log")
-    ax.set_yscale("log")
+    if log_y:
+        ax.set_yscale("log")
     ax.invert_xaxis()
-    visible = [t for t in _X_TICKS if t <= 100]
-    ax.set_xticks(visible)
+    ax.set_xlim(left=100)
+    ax.set_xticks(_X_TICKS)
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}%"))
     ax.xaxis.set_minor_locator(mticker.NullLocator())
     ax.set_xlabel(x_label, fontsize=12)
-    ax.set_ylabel("Avg saliency", fontsize=12)
+    ax.set_ylabel(y_label, fontsize=12)
     ax.tick_params(labelsize=10)
     ax.set_title(title, fontsize=13)
-    ax.legend(fontsize=9, framealpha=0.85)
     ax.grid(True, which="both", linestyle="--", linewidth=0.4, alpha=0.5)
 
 
-# ── Per-saliency plot (static vs retrain) ────────────────────────────────────
+# ── Per-saliency plot ─────────────────────────────────────────────────────────
 
 def _plot_one_saliency(
     cls: str,
-    static_csv: str | None,
-    retrain_csv: str | None,
+    retrain_csv: str,
     out_path: str,
     pruning_label: str,
+    x_col: str,
+    y_col: str,
+    x_label: str,
+    y_label: str,
 ) -> None:
-    short = SHORT_NAME[cls]
+    short  = SHORT_NAME[cls]
+    colour = SALIENCY_COLOUR[cls]
+
+    data = _read_csv(retrain_csv, x_col=x_col, y_col=y_col)
+    if not data["xs"].size:
+        print(f"  [plot] skipping {short} — no valid data")
+        return
+
     fig, ax = plt.subplots(figsize=(9, 6))
+    ax.plot(data["xs"], data["ys"], color=colour, linewidth=1.8)
+    ax.scatter(data["xs"], data["ys"], color=colour, s=28, zorder=3)
+    _style_ax(ax, f"{pruning_label}  |  {short} saliency",
+              y_label=y_label, x_label=x_label)
 
-    plotted = False
-
-    if static_csv:
-        xs, ys = _read_xy(static_csv)
-        if xs.size:
-            ax.plot(xs, ys, color="steelblue", linewidth=1.8, linestyle="-")
-            ax.scatter(xs, ys, color="steelblue", s=28, zorder=3, label="Static")
-            plotted = True
-        else:
-            print(f"  [plot] WARNING: no plottable data in static CSV for {short}")
-
-    if retrain_csv:
-        xs, ys = _read_xy(retrain_csv)
-        if xs.size:
-            ax.plot(xs, ys, color="tomato", linewidth=1.8, linestyle="--")
-            ax.scatter(xs, ys, color="tomato", s=28, zorder=3,
-                       marker="^", label="Retrain")
-            plotted = True
-        else:
-            print(f"  [plot] WARNING: no plottable data in retrain CSV for {short}")
-
-    if not plotted:
-        print(f"  [plot] skipping {short} — no valid data in either CSV")
-        plt.close(fig)
-        return
-
-    _style_ax(ax, f"{pruning_label}  |  {short} saliency")
     fig.tight_layout()
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     fig.savefig(out_path, dpi=150)
@@ -188,179 +220,42 @@ def _plot_one_saliency(
     plt.close(fig)
 
 
-# ── Combined plot (all saliencies, static + retrain) ─────────────────────────
+# ── Per-metric plot ───────────────────────────────────────────────────────────
 
-def _plot_combined(
-    static_map:  dict[str, str],
+def _plot_one_metric(
+    metric: str,
     retrain_map: dict[str, str],
     out_path: str,
     pruning_label: str,
+    x_col: str,
+    x_label: str,
 ) -> None:
-    fig, ax = plt.subplots(figsize=(11, 7))
-
-    legend_handles: list[Line2D] = []
-    plotted_any = False
-
-    for cls in SALIENCY_CLASSES:
-        short  = SHORT_NAME[cls]
-        colour = SALIENCY_COLOUR[cls]
-
-        static_csv  = static_map.get(cls)
-        retrain_csv = retrain_map.get(cls)
-
-        has_static = has_retrain = False
-
-        if static_csv:
-            xs, ys = _read_xy(static_csv)
-            if xs.size:
-                ax.plot(xs, ys, color=colour, linewidth=1.5, linestyle="-",  alpha=0.9)
-                ax.scatter(xs, ys, color=colour, s=22, zorder=3)
-                has_static = True
-                plotted_any = True
-
-        if retrain_csv:
-            xs, ys = _read_xy(retrain_csv)
-            if xs.size:
-                ax.plot(xs, ys, color=colour, linewidth=1.5, linestyle="--", alpha=0.9)
-                ax.scatter(xs, ys, color=colour, s=22, zorder=3, marker="^")
-                has_retrain = True
-                plotted_any = True
-
-        if has_static or has_retrain:
-            conditions = []
-            if has_static:  conditions.append("static")
-            if has_retrain: conditions.append("retrain")
-            legend_handles.append(
-                Line2D([0], [0], color=colour, linewidth=2,
-                       label=f"{short}  ({', '.join(conditions)})")
-            )
-
-    if not plotted_any:
-        print("  [plot] combined: no valid data found, skipping")
-        plt.close(fig)
+    rep_csv = next(iter(retrain_map.values()), None)
+    if rep_csv is None:
+        print(f"  [plot] skipping {metric} — no CSV available")
         return
 
-    # Extra legend entries to explain line style
-    style_handles = [
-        Line2D([0], [0], color="grey", linewidth=2, linestyle="-",  label="— static"),
-        Line2D([0], [0], color="grey", linewidth=2, linestyle="--", label="-- retrain"),
-    ]
-    ax.legend(handles=legend_handles + style_handles,
-              fontsize=8.5, framealpha=0.85, ncol=2)
+    data = _read_csv(rep_csv, x_col=x_col)
+    ys_all = data[metric]
+    mask = ~np.isnan(ys_all)
+    if not mask.any():
+        print(f"  [plot] skipping {metric} — all NaN")
+        return
 
-    _style_ax(ax, f"{pruning_label}  |  all saliency metrics")
+    xs = data["bg_xs"][mask]
+    ys = ys_all[mask]
+    colour = _METRIC_COLOUR[metric]
+    y_label = _METRIC_LABEL[metric]
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.plot(xs, ys, color=colour, linewidth=1.8)
+    ax.scatter(xs, ys, color=colour, s=28, zorder=3)
+    _style_ax(ax, f"{pruning_label}  |  {y_label}",
+              y_label=y_label, x_label=x_label, log_y=False)
+
     fig.tight_layout()
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     fig.savefig(out_path, dpi=150)
-    print(f"  [plot] saved → {out_path}")
-    plt.close(fig)
-
-
-# ── Combined plot — each saliency normalised to its own max ──────────────────
-
-def _plot_combined_normalised(
-    static_map:  dict[str, str],
-    retrain_map: dict[str, str],
-    out_path: str,
-    pruning_label: str,
-) -> None:
-    """
-    Same as _plot_combined but each saliency type's Y values are divided by
-    the maximum value across both static and retrain for that type.  All curves
-    therefore end up in (0, 1] regardless of their absolute scale, making the
-    shapes directly comparable on the same axes.  Legend is placed above the plot.
-    """
-    fig, ax = plt.subplots(figsize=(11, 7))
-
-    legend_handles: list[Line2D] = []
-    plotted_any = False
-
-    for cls in SALIENCY_CLASSES:
-        short  = SHORT_NAME[cls]
-        colour = SALIENCY_COLOUR[cls]
-
-        static_csv  = static_map.get(cls)
-        retrain_csv = retrain_map.get(cls)
-
-        # Read both series first so we can normalise by a shared max.
-        static_xs,  static_ys  = _read_xy(static_csv)  if static_csv  else (np.array([]), np.array([]))
-        retrain_xs, retrain_ys = _read_xy(retrain_csv) if retrain_csv else (np.array([]), np.array([]))
-
-        all_ys = np.concatenate([static_ys, retrain_ys])
-        if all_ys.size == 0:
-            continue
-        norm = all_ys.max()
-        if norm == 0:
-            continue
-
-        has_static = has_retrain = False
-
-        if static_xs.size:
-            ys_norm = static_ys / norm
-            ax.plot(static_xs, ys_norm, color=colour, linewidth=1.5,
-                    linestyle="-", alpha=0.9)
-            ax.scatter(static_xs, ys_norm, color=colour, s=22, zorder=3)
-            has_static = True
-            plotted_any = True
-
-        if retrain_xs.size:
-            ys_norm = retrain_ys / norm
-            ax.plot(retrain_xs, ys_norm, color=colour, linewidth=1.5,
-                    linestyle="--", alpha=0.9)
-            ax.scatter(retrain_xs, ys_norm, color=colour, s=22, zorder=3,
-                       marker="^")
-            has_retrain = True
-            plotted_any = True
-
-        if has_static or has_retrain:
-            conditions = []
-            if has_static:  conditions.append("static")
-            if has_retrain: conditions.append("retrain")
-            legend_handles.append(
-                Line2D([0], [0], color=colour, linewidth=2,
-                       label=f"{short}  ({', '.join(conditions)})")
-            )
-
-    if not plotted_any:
-        print("  [plot] combined-normalised: no valid data found, skipping")
-        plt.close(fig)
-        return
-
-    style_handles = [
-        Line2D([0], [0], color="grey", linewidth=2, linestyle="-",  label="— static"),
-        Line2D([0], [0], color="grey", linewidth=2, linestyle="--", label="-- retrain"),
-    ]
-    all_handles = legend_handles + style_handles
-
-    # Legend above the plot area
-    ax.legend(
-        handles=all_handles,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 1.18),
-        ncol=4,
-        fontsize=8.5,
-        framealpha=0.85,
-    )
-
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.invert_xaxis()
-    visible = [t for t in _X_TICKS if t <= 100]
-    ax.set_xticks(visible)
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}%"))
-    ax.xaxis.set_minor_locator(mticker.NullLocator())
-    ax.set_xlabel("Remaining weights (%)", fontsize=12)
-    ax.set_ylabel("Normalised avg saliency  (each metric scaled to its own max)",
-                  fontsize=11)
-    ax.tick_params(labelsize=10)
-    ax.set_title(f"{pruning_label}  |  all saliency metrics  (normalised)",
-                 fontsize=13, pad=60)
-    ax.grid(True, which="both", linestyle="--", linewidth=0.4, alpha=0.5)
-
-    fig.tight_layout()
-    fig.subplots_adjust(top=0.78)   # extra headroom for the top legend
-    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"  [plot] saved → {out_path}")
     plt.close(fig)
 
@@ -372,73 +267,73 @@ def main() -> None:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--static",  required=True,
-                        help="Folder containing the static experiment CSVs")
     parser.add_argument("--retrain", required=True,
                         help="Folder containing the retrain experiment CSVs")
     parser.add_argument("--out", default=None,
-                        help="Output directory for images (default: plots/ next to --static)")
+                        help="Output directory for images (default: plots/ inside --retrain)")
+    parser.add_argument("--mode", choices=["contributing", "density"],
+                        default="contributing",
+                        help="Which x/y columns to use (default: contributing)")
     args = parser.parse_args()
 
-    static_folder  = args.static
     retrain_folder = args.retrain
+    out_dir = args.out if args.out else str(Path(retrain_folder) / "plots")
 
-    # Default output directory: plots/ sibling of the static folder
-    if args.out is None:
-        out_dir = str(Path(static_folder).parent / "plots")
+    if args.mode == "contributing":
+        x_col   = "contributing"
+        y_col   = "avg_saliency_contributing"
+        x_label = "Contributing weights (%)"
+        y_label = "Avg saliency (contributing)"
+        suffix  = ""
     else:
-        out_dir = args.out
+        x_col   = "density"
+        y_col   = "avg_saliency"
+        x_label = "Remaining weights (%)"
+        y_label = "Avg saliency"
+        suffix  = "_density"
 
-    # Derive a human-readable pruning label from the folder names
-    static_name  = Path(static_folder).name   # e.g. "lenet_random_static"
-    retrain_name = Path(retrain_folder).name  # e.g. "lenet_random_retrain"
-    # Strip trailing _static / _retrain to get pruning method label
-    pruning_label = static_name.removesuffix("_static").removesuffix("_retrain")
+    pruning_label = Path(retrain_folder).name.removesuffix("_retrain")
 
-    print(f"\n[plot] static  folder : {static_folder}")
-    print(f"[plot] retrain folder : {retrain_folder}")
+    print(f"\n[plot] retrain folder : {retrain_folder}")
     print(f"[plot] output dir     : {out_dir}")
-    print(f"[plot] pruning label  : {pruning_label}\n")
+    print(f"[plot] pruning label  : {pruning_label}")
+    print(f"[plot] mode           : {args.mode}\n")
 
-    static_map  = _scan_folder(static_folder)
     retrain_map = _scan_folder(retrain_folder)
-
-    if not static_map and not retrain_map:
-        print("[plot] ERROR: no CSVs found in either folder. Exiting.")
+    if not retrain_map:
+        print("[plot] ERROR: no CSVs found. Exiting.")
         sys.exit(1)
 
-    print(f"[plot] found {len(static_map)} static CSV(s), "
-          f"{len(retrain_map)} retrain CSV(s)\n")
+    print(f"[plot] found {len(retrain_map)} retrain CSV(s)\n")
 
-    # ── 5 individual per-saliency plots ───────────────────────────────────────
     for cls in SALIENCY_CLASSES:
+        csv_path = retrain_map.get(cls)
+        if not csv_path:
+            print(f"  [plot] WARNING: no CSV for {SHORT_NAME[cls]}, skipping")
+            continue
         slug = FILE_SLUG[cls]
-        out_path = os.path.join(out_dir, f"{slug}_static_vs_retrain.png")
         _plot_one_saliency(
             cls=cls,
-            static_csv=static_map.get(cls),
-            retrain_csv=retrain_map.get(cls),
-            out_path=out_path,
+            retrain_csv=csv_path,
+            out_path=os.path.join(out_dir, f"{slug}{suffix}.png"),
             pruning_label=pruning_label,
+            x_col=x_col,
+            y_col=y_col,
+            x_label=x_label,
+            y_label=y_label,
         )
 
-    # ── 1 combined plot ───────────────────────────────────────────────────────
-    _plot_combined(
-        static_map=static_map,
-        retrain_map=retrain_map,
-        out_path=os.path.join(out_dir, "all_combined.png"),
-        pruning_label=pruning_label,
-    )
+    for metric in ("accuracy", "test_loss", "train_loss"):
+        _plot_one_metric(
+            metric=metric,
+            retrain_map=retrain_map,
+            out_path=os.path.join(out_dir, f"{metric}{suffix}.png"),
+            pruning_label=pruning_label,
+            x_col=x_col,
+            x_label=x_label,
+        )
 
-    # ── 1 combined plot — normalised per saliency ─────────────────────────────
-    _plot_combined_normalised(
-        static_map=static_map,
-        retrain_map=retrain_map,
-        out_path=os.path.join(out_dir, "all_combined_normalised.png"),
-        pruning_label=pruning_label,
-    )
-
-    print("\n[plot] done.")
+    print("\n[plot] done. 8 plots saved.")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,9 @@
+Experiment:   vgg19_random_static
+Date:         2026-04-05
+Model:        VGG-19 (alpha=1.0)
+Dataset:      CIFAR-100
+Pruning:      RandomPruningPolicy  rate=20.0%
+Convergence:  FixedEpochsConvergencePolicy(epochs=0) — no retraining
+Stopping:     NPLHDensityLimitStoppingPolicy  threshold=0.05%
+Saliency:     Magnitude, Gradient, Taylor, Hessian, NeuronActivationFreq
+Description:  Random pruning without retraining on pretrained VGG-19/CIFAR-100.

@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from src.infrastructure.layers import (
     ConfigsNetworkMask, LayerLinearMaskImportance, ConfigsLayerLinear,
     LayerPrimitive, LayerComposite, get_layers_primitive, get_flow_params_loss, ModelCustom,

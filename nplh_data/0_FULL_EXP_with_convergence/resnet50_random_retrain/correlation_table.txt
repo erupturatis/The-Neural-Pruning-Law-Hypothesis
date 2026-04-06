@@ -1,0 +1,11 @@
+Pearson correlation of avg_saliency_contributing
+Folder    : resnet50_random_retrain
+Filter    : accuracy >= 75% of peak  (peak=93.67%,  threshold=70.25%,  n=24)
+
+           Magnitude  Gradient    Taylor   Hessian  NeuronAF
+------------------------------------------------------------
+Magnitude     1.0000    0.8842    0.8697    0.7551   -0.7042
+Gradient      0.8842    1.0000    0.9990    0.9356   -0.5141
+Taylor        0.8697    0.9990    1.0000    0.9456   -0.4793
+Hessian       0.7551    0.9356    0.9456    1.0000   -0.2959
+NeuronAF     -0.7042   -0.5141   -0.4793   -0.2959    1.0000

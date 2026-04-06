@@ -1,0 +1,9 @@
+Experiment:   lenet_magnitude_retrain
+Date:         2026-04-02
+Model:        LeNet-300 (alpha=1.0)
+Dataset:      MNIST
+Pruning:      MagnitudePruningPolicy  rate=5.0%
+Convergence:  UntilConvergencePolicy(window=10, max_epochs=200)
+Stopping:     NPLHDensityLimitStoppingPolicy  threshold=0.2%
+Saliency:     Magnitude, Gradient, Taylor, Hessian, NeuronActivationFreq
+Description:  Magnitude pruning with retraining to convergence after each round.

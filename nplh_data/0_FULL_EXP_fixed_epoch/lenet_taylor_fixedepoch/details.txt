@@ -1,0 +1,10 @@
+Experiment:   lenet_taylor_fixedepoch
+Date:         2026-04-05
+Model:        LeNet-300 (alpha=1.0)
+Dataset:      MNIST
+Pruning:      TaylorPruningPolicy  rate=10.0%
+Warmup:       UntilConvergencePolicy(window=5, max_epochs=100, lr=1e-03)
+Loop:         FixedEpochsConvergencePolicy(epochs=5, lr=1e-04)
+Stopping:     NPLHDensityLimitStoppingPolicy  threshold=0.5%
+Saliency:     Magnitude, Gradient, Taylor, Hessian, NeuronActivationFreq
+Description:  Taylor pruning, warmup to convergence then 5-epoch fixed fine-tuning at 1e-4.

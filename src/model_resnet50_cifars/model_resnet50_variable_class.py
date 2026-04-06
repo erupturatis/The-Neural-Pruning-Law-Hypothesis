@@ -49,6 +49,7 @@ class ModelResnet50Variable(ModelCustom):
                 )
             else:
                 raise ValueError(f"Unsupported registered layer type: {t}")
+            layer.prunable = attr.get('prunable', True)
             setattr(self, name, layer)
             self.registered_layers.append(layer)
 

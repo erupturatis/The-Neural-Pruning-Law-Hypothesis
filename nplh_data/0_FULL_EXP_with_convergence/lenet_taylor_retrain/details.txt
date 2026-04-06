@@ -1,0 +1,9 @@
+Experiment:   lenet_taylor_retrain
+Date:         2026-04-04
+Model:        LeNet-300 (alpha=1.0)
+Dataset:      MNIST
+Pruning:      TaylorPruningPolicy  rate=10.0%
+Convergence:  UntilConvergencePolicy(window=5, max_epochs=100)
+Stopping:     NPLHDensityLimitStoppingPolicy  threshold=0.5%
+Saliency:     Magnitude, Gradient, Taylor, Hessian, NeuronActivationFreq
+Description:  First-order Taylor pruning (|w * grad|) with retraining to convergence after each round.

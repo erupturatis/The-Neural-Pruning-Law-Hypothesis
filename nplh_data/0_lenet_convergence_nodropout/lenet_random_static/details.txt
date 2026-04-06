@@ -1,0 +1,9 @@
+Experiment:   lenet_random_static
+Date:         2026-04-02
+Model:        LeNet-300 (alpha=1.0)
+Dataset:      MNIST
+Pruning:      RandomPruningPolicy  rate=5.0%
+Convergence:  FixedEpochsConvergencePolicy(epochs=0) — no retraining
+Stopping:     NPLHDensityLimitStoppingPolicy  threshold=0.2%
+Saliency:     Magnitude, Gradient, Taylor, Hessian, NeuronActivationFreq
+Description:  Random pruning without retraining. Saliency measured at each density level as weights are randomly removed with no fine-tuning.

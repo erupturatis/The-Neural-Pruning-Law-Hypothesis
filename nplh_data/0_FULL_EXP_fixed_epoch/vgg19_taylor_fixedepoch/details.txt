@@ -1,0 +1,10 @@
+Experiment:   vgg19_taylor_fixedepoch
+Date:         2026-04-05
+Model:        VGG-19 (alpha=1.0)
+Dataset:      CIFAR-100
+Pruning:      TaylorPruningPolicy  rate=20.0%
+Warmup:       UntilConvergencePolicy(window=5, max_epochs=100, lr=1e-03)
+Loop:         FixedEpochsConvergencePolicy(epochs=5, lr=unchanged from warmup)
+Stopping:     NPLHDensityLimitStoppingPolicy  threshold=0.05%
+Saliency:     Magnitude, Gradient, Taylor, Hessian, NeuronActivationFreq
+Description:  Taylor pruning on VGG-19/CIFAR-100, warmup to convergence then 5-epoch fixed fine-tuning.

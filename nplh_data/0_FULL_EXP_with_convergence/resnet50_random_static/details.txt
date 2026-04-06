@@ -1,0 +1,9 @@
+Experiment:   resnet50_random_static
+Date:         2026-04-04
+Model:        ResNet-50 (alpha=1.0)
+Dataset:      CIFAR-10
+Pruning:      RandomPruningPolicy  rate=20.0%
+Convergence:  FixedEpochsConvergencePolicy(epochs=0) — no retraining
+Stopping:     NPLHDensityLimitStoppingPolicy  threshold=0.05%
+Saliency:     Magnitude, Gradient, Taylor, Hessian, NeuronActivationFreq
+Description:  Random pruning without retraining on pretrained ResNet-50/CIFAR-10.

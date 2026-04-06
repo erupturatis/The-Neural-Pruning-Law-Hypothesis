@@ -7,7 +7,7 @@ import torch.optim as optim
 from src.experiments.utils import get_model_density
 from src.infrastructure.training_context import TrainingContext
 from src.infrastructure.constants import WEIGHTS_ATTR, MASK_ATTR
-from src.infrastructure.layers import get_layers_primitive, set_mask_apply_all, set_mask_training_all, set_weights_training_all
+from src.infrastructure.layers import get_layers_primitive, get_prunable_layers, get_layer_name, set_mask_apply_all, set_mask_training_all, set_weights_training_all
 from src.infrastructure.schedulers import AbstractScheduler
 from warnings import warn
 
@@ -39,7 +39,7 @@ class MagnitudePruningPolicy(PruningPolicy):
             return
 
         active_magnitudes = []
-        for layer in get_layers_primitive(ctx.model):
+        for layer in get_prunable_layers(ctx.model):
             weights = getattr(layer, WEIGHTS_ATTR).data
             mask = getattr(layer, MASK_ATTR).data
             active = weights[mask >= 0]
@@ -63,7 +63,7 @@ class MagnitudePruningPolicy(PruningPolicy):
         threshold = torch.kthvalue(all_magnitudes, prune_count).values.item()
 
         with torch.no_grad():
-            for layer in get_layers_primitive(ctx.model):
+            for layer in get_prunable_layers(ctx.model):
                 weights = getattr(layer, WEIGHTS_ATTR).data
                 mask = getattr(layer, MASK_ATTR).data
                 mask[(mask >= 0) & (torch.abs(weights) <= threshold)] = -1.0
@@ -80,7 +80,7 @@ class RandomPruningPolicy(PruningPolicy):
             return
 
         with torch.no_grad():
-            for layer in get_layers_primitive(ctx.model):
+            for layer in get_prunable_layers(ctx.model):
                 mask = getattr(layer, MASK_ATTR).data
                 flat = mask.flatten()
                 active_idx = (flat >= 0).nonzero(as_tuple=False).squeeze(1)
@@ -108,16 +108,17 @@ def _gradient_based_prune(ctx: TrainingContext, pruning_rate: float, score_fn) -
     saved_grads = _save_grads(ctx.model)
     ctx.accumulate_gradients()
 
-    layers = get_layers_primitive(ctx.model)
+    layers = get_prunable_layers(ctx.model)
     layer_data = []  # (layer, active_mask, scores_tensor)
     for layer in layers:
         w    = getattr(layer, WEIGHTS_ATTR)
         mask = getattr(layer, MASK_ATTR).data
-        if w.grad is None:
-            raise Exception(f"Layer {layer} has no gradients after accumulation.")
         active = mask >= 0
         if not active.any():
-            raise Exception(f"Layer {layer} has no active weights.")
+            warn(f"[Pruning] Layer '{get_layer_name(ctx.model, layer)}' has no active weights — skipping (fully collapsed).")
+            continue
+        if w.grad is None:
+            raise Exception(f"Layer '{get_layer_name(ctx.model, layer)}' has no gradients after accumulation.")
         layer_data.append((layer, active, score_fn(w)))
 
     if not layer_data:
@@ -137,7 +138,8 @@ def _gradient_based_prune(ctx: TrainingContext, pruning_rate: float, score_fn) -
 
     with torch.no_grad():
         for layer, active, scores in layer_data:
-            getattr(layer, MASK_ATTR).data[active & (scores.abs() <= threshold)] = -1.0
+            mask = getattr(layer, MASK_ATTR).data
+            mask[active & (scores.abs() <= threshold)] = -1.0
 
     _restore_grads(ctx.model, saved_grads)
 

@@ -17,7 +17,7 @@ from src.infrastructure.policies.nplh_stopping_policy import NPLHStoppingPolicy
 from src.infrastructure.constants import BASELINE_MODELS_PATH
 from src.model_vgg19_cifars.model_vgg19_variable_class import ModelVGG19Variable
 import time
-from src.experiments.utils import get_model_density, timed
+from src.experiments.utils import get_model_density, timed, log_layer_densities
 from src.plots.nplh_data import NplhSeries
 
 
@@ -28,6 +28,7 @@ def nplh_vgg19_cifar100(
     saliency_policies: list[SaliencyMeasurementPolicy],
     stopping_policy: NPLHStoppingPolicy,
     experiment_name: str,
+    warmup_policy: TrainingConvergencePolicy | None = None,
 ):
     LR_FINETUNE = 1e-3
     MAX_ROUNDS = 1000
@@ -47,6 +48,14 @@ def nplh_vgg19_cifar100(
         for policy in saliency_policies
     }
 
+    # ── Warmup ────────────────────────────────────────────────────────────────
+    _warmup = warmup_policy if warmup_policy is not None else convergence_policy
+    print(f"\n=== Warmup  |  {time.strftime('%H:%M:%S')} ===")
+    with timed() as t:
+        _warmup.train_until_convergence(ctx)
+        acc_w, _ = ctx.evaluate()
+    print(f"=== Warmup done — acc={acc_w:.4f}  ({t}) ===\n")
+
     for round_idx in range(1, MAX_ROUNDS + 1):
         density = get_model_density(model)
         print(f"\n=== Round {round_idx}  |  {time.strftime('%H:%M:%S')}  |  remaining={density:.3f}% ===")
@@ -60,6 +69,7 @@ def nplh_vgg19_cifar100(
             pruning_policy.apply_pruning(ctx)
         density = get_model_density(model)
         print(f"  [Pruning]   done — density now {density:.3f}%  ({t})")
+        log_layer_densities(model)
 
         print(f"  [Training]  running {type(convergence_policy).__name__}...")
         with timed() as t:
@@ -108,6 +118,7 @@ def experiment_vgg19_variable_cifar100_NPLH(
     saliency_policies: list[SaliencyMeasurementPolicy],
     stopping_policy: NPLHStoppingPolicy,
     experiment_name: str,
+    warmup_policy: TrainingConvergencePolicy | None = None,
 ) -> None:
     """Prepares each model and runs the NPLH experiment on CIFAR-100."""
     for spec in models_to_run:
@@ -129,4 +140,5 @@ def experiment_vgg19_variable_cifar100_NPLH(
             saliency_policies=saliency_policies,
             stopping_policy=stopping_policy,
             experiment_name=experiment_name,
+            warmup_policy=warmup_policy,
         )

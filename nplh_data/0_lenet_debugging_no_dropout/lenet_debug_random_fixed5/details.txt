@@ -1,0 +1,9 @@
+Experiment:   lenet_debug_random_fixed5
+Date:         2026-04-04
+Model:        LeNet-300 (alpha=1.0)
+Dataset:      MNIST
+Pruning:      RandomPruningPolicy  rate=10.0%
+Convergence:  FixedEpochsConvergencePolicy(epochs=5)
+Stopping:     NPLHDensityLimitStoppingPolicy  threshold=3%
+Saliency:     Magnitude only
+Purpose:      Per-layer density debug run

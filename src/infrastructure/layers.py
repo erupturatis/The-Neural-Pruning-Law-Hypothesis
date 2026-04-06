@@ -43,6 +43,8 @@ class LayerLinearMaskImportance(LayerPrimitive):
     def __init__(self, configs_linear: ConfigsLayerLinear, configs_network: ConfigsNetworkMask):
         super().__init__()
 
+        self.prunable = True  # set to False on structural layers that must never be pruned
+
         self.in_features = configs_linear.in_features
         self.out_features = configs_linear.out_features
         self.bias_enabled = configs_linear.bias_enabled
@@ -124,6 +126,8 @@ class ConfigsLayerConv2:
 class LayerConv2MaskImportance(LayerPrimitive):
     def __init__(self, configs_conv2d: ConfigsLayerConv2, configs_network_masks: ConfigsNetworkMask):
         super(LayerConv2MaskImportance, self).__init__()
+
+        self.prunable = True  # set to False on structural layers that must never be pruned
 
         self.in_channels = configs_conv2d.in_channels
         self.out_channels = configs_conv2d.out_channels
@@ -256,6 +260,18 @@ def get_layers_primitive(self: LayerComposite) -> List[LayerPrimitive]:
             layers.extend(get_layers_primitive(layer))
     return layers
 
+
+def get_prunable_layers(self: LayerComposite) -> List[LayerPrimitive]:
+    """Like get_layers_primitive but excludes structural layers marked prunable=False."""
+    return [l for l in get_layers_primitive(self) if l.prunable]
+
+def get_layer_name(model: nn.Module, layer: nn.Module) -> str:
+    """Return the attribute name of layer within model, or its class name as fallback."""
+    for name, mod in model.named_modules():
+        if mod is layer:
+            return name
+    return type(layer).__name__
+
 def set_mask_apply_all(self: LayerComposite, mask_apply_enabled: bool) -> None:
     for layer in get_layers_primitive(self):
         layer.set_mask_apply(mask_apply_enabled)
@@ -270,15 +286,16 @@ def set_weights_training_all(self: LayerComposite, weights_training_enabled: boo
 
 
 def get_total_and_remaining_params(self: LayerComposite) -> tuple[int, int]:
+    """Counts only prunable layers — structural/non-prunable layers are excluded."""
     total, remaining = 0, 0
-    for layer in get_layers_primitive(self):
+    for layer in get_prunable_layers(self):
         mask = getattr(layer, MASK_ATTR).data
         total += mask.numel()
         remaining += int((mask >= 0).sum().item())
     return total, remaining
 
 def get_total_params(self: LayerComposite) -> int:
-    return sum(getattr(l, MASK_ATTR).data.numel() for l in get_layers_primitive(self))
+    return sum(getattr(l, MASK_ATTR).data.numel() for l in get_prunable_layers(self))
 
 
 def get_flow_params_loss(self: LayerComposite) -> tuple[float, torch.Tensor]:

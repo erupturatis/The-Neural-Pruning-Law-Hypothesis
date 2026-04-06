@@ -72,15 +72,17 @@ ROOT = Path(__file__).parent.parent
 
 # ── Shared constants ───────────────────────────────────────────────────────────
 
-LENET_RATE  = 5.0
-CIFAR_RATE  = 10.0
-LENET_STOP  = 0.1    # stop when density ≤ 0.1%
-CIFAR_STOP  = 0.01   # stop when density ≤ 0.01%
+LENET_RATE  = 10.0
+CIFAR_RATE  = 20.0
+LENET_STOP  = 0.5    # stop when density ≤ 0.5%
+CIFAR_STOP  = 0.05   # stop when density ≤ 0.05%
 
-# Convergence: last 10 epochs must have accuracy variation < 0.1 pp
-CONV_WINDOW    = 10
-CONV_TOL       = 0.1
-CONV_MAX_EPOCHS = 200
+LR_FINETUNE = 1e-3   # Adam LR reset at the start of every convergence round
+
+# Convergence: 4 phases (3 LR step-downs by /10); patience on train-loss
+CONV_WINDOW     = 5
+CONV_MAX_EPOCHS = 100
+CONV_REL_TOL    = 0.25   # 10% relative improvement required to reset patience
 
 # Pre-trained baselines (CIFAR networks only; LeNet trains from scratch)
 R50_CIFAR10_PRETRAINED  = "resnet50_cifar10_alpha1.0_acc94.2"
@@ -104,7 +106,11 @@ def _static_policy():
 
 
 def _retrain_policy():
-    return UntilConvergencePolicy(window=CONV_WINDOW, tol=CONV_TOL, max_epochs=CONV_MAX_EPOCHS)
+    return UntilConvergencePolicy(
+        window=CONV_WINDOW,
+        max_epochs=CONV_MAX_EPOCHS, initial_lr=LR_FINETUNE,
+        rel_tol=CONV_REL_TOL,
+    )
 
 
 def _fmt_details(
@@ -182,7 +188,7 @@ def _lenet_random_static() -> None:
 def _lenet_random_retrain() -> None:
     _run_lenet("lenet_random_retrain", RandomPruningPolicy(LENET_RATE), _retrain_policy(),
         _fmt_details("lenet_random_retrain", "LeNet-300", "MNIST",
-            "RandomPruningPolicy", LENET_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", LENET_STOP,
+            "RandomPruningPolicy", LENET_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", LENET_STOP,
             "Random pruning with retraining to convergence after each round."))
 
 def _lenet_magnitude_static() -> None:
@@ -194,20 +200,20 @@ def _lenet_magnitude_static() -> None:
 def _lenet_magnitude_retrain() -> None:
     _run_lenet("lenet_magnitude_retrain", MagnitudePruningPolicy(LENET_RATE), _retrain_policy(),
         _fmt_details("lenet_magnitude_retrain", "LeNet-300", "MNIST",
-            "MagnitudePruningPolicy", LENET_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", LENET_STOP,
+            "MagnitudePruningPolicy", LENET_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", LENET_STOP,
             "Magnitude pruning with retraining to convergence after each round."))
 
-def _lenet_fisher_static() -> None:
-    _run_lenet("lenet_fisher_static", HessianPruningPolicy(LENET_RATE), _static_policy(),
-        _fmt_details("lenet_fisher_static", "LeNet-300", "MNIST",
-            "HessianPruningPolicy (diagonal Fisher)", LENET_RATE, "FixedEpochsConvergencePolicy(epochs=0) — no retraining", LENET_STOP,
-            "Fisher/Hessian pruning without retraining. Diagonal Fisher approximation (0.5 * H_ii * w_i^2) with no fine-tuning."))
+# def _lenet_fisher_static() -> None:
+#     _run_lenet("lenet_fisher_static", HessianPruningPolicy(LENET_RATE), _static_policy(),
+#         _fmt_details("lenet_fisher_static", "LeNet-300", "MNIST",
+#             "HessianPruningPolicy (diagonal Fisher)", LENET_RATE, "FixedEpochsConvergencePolicy(epochs=0) — no retraining", LENET_STOP,
+#             "Fisher/Hessian pruning without retraining. Diagonal Fisher approximation (0.5 * H_ii * w_i^2) with no fine-tuning."))
 
-def _lenet_fisher_retrain() -> None:
-    _run_lenet("lenet_fisher_retrain", HessianPruningPolicy(LENET_RATE), _retrain_policy(),
-        _fmt_details("lenet_fisher_retrain", "LeNet-300", "MNIST",
-            "HessianPruningPolicy (diagonal Fisher)", LENET_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", LENET_STOP,
-            "Fisher/Hessian pruning with retraining to convergence after each round."))
+# def _lenet_fisher_retrain() -> None:
+#     _run_lenet("lenet_fisher_retrain", HessianPruningPolicy(LENET_RATE), _retrain_policy(),
+#         _fmt_details("lenet_fisher_retrain", "LeNet-300", "MNIST",
+#             "HessianPruningPolicy (diagonal Fisher)", LENET_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", LENET_STOP,
+#             "Fisher/Hessian pruning with retraining to convergence after each round."))
 
 def _lenet_taylor_static() -> None:
     _run_lenet("lenet_taylor_static", TaylorPruningPolicy(LENET_RATE), _static_policy(),
@@ -218,20 +224,20 @@ def _lenet_taylor_static() -> None:
 def _lenet_taylor_retrain() -> None:
     _run_lenet("lenet_taylor_retrain", TaylorPruningPolicy(LENET_RATE), _retrain_policy(),
         _fmt_details("lenet_taylor_retrain", "LeNet-300", "MNIST",
-            "TaylorPruningPolicy", LENET_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", LENET_STOP,
+            "TaylorPruningPolicy", LENET_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", LENET_STOP,
             "First-order Taylor pruning (|w * grad|) with retraining to convergence after each round."))
 
-def _lenet_gradient_static() -> None:
-    _run_lenet("lenet_gradient_static", GradientPruningPolicy(LENET_RATE), _static_policy(),
-        _fmt_details("lenet_gradient_static", "LeNet-300", "MNIST",
-            "GradientPruningPolicy", LENET_RATE, "FixedEpochsConvergencePolicy(epochs=0) — no retraining", LENET_STOP,
-            "Gradient-magnitude pruning (|grad|) without retraining."))
+# def _lenet_gradient_static() -> None:
+#     _run_lenet("lenet_gradient_static", GradientPruningPolicy(LENET_RATE), _static_policy(),
+#         _fmt_details("lenet_gradient_static", "LeNet-300", "MNIST",
+#             "GradientPruningPolicy", LENET_RATE, "FixedEpochsConvergencePolicy(epochs=0) — no retraining", LENET_STOP,
+#             "Gradient-magnitude pruning (|grad|) without retraining."))
 
-def _lenet_gradient_retrain() -> None:
-    _run_lenet("lenet_gradient_retrain", GradientPruningPolicy(LENET_RATE), _retrain_policy(),
-        _fmt_details("lenet_gradient_retrain", "LeNet-300", "MNIST",
-            "GradientPruningPolicy", LENET_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", LENET_STOP,
-            "Gradient-magnitude pruning (|grad|) with retraining to convergence after each round."))
+# def _lenet_gradient_retrain() -> None:
+#     _run_lenet("lenet_gradient_retrain", GradientPruningPolicy(LENET_RATE), _retrain_policy(),
+#         _fmt_details("lenet_gradient_retrain", "LeNet-300", "MNIST",
+#             "GradientPruningPolicy", LENET_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", LENET_STOP,
+#             "Gradient-magnitude pruning (|grad|) with retraining to convergence after each round."))
 
 
 # ── ResNet-50 / CIFAR-10 ───────────────────────────────────────────────────────
@@ -245,7 +251,7 @@ def _resnet50_random_static() -> None:
 def _resnet50_random_retrain() -> None:
     _run_resnet50("resnet50_random_retrain", RandomPruningPolicy(CIFAR_RATE), _retrain_policy(),
         _fmt_details("resnet50_random_retrain", "ResNet-50", "CIFAR-10",
-            "RandomPruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
+            "RandomPruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
             "Random pruning with retraining to convergence on pretrained ResNet-50/CIFAR-10."))
 
 def _resnet50_magnitude_static() -> None:
@@ -257,20 +263,20 @@ def _resnet50_magnitude_static() -> None:
 def _resnet50_magnitude_retrain() -> None:
     _run_resnet50("resnet50_magnitude_retrain", MagnitudePruningPolicy(CIFAR_RATE), _retrain_policy(),
         _fmt_details("resnet50_magnitude_retrain", "ResNet-50", "CIFAR-10",
-            "MagnitudePruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
+            "MagnitudePruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
             "Magnitude pruning with retraining to convergence on pretrained ResNet-50/CIFAR-10."))
 
-def _resnet50_fisher_static() -> None:
-    _run_resnet50("resnet50_fisher_static", HessianPruningPolicy(CIFAR_RATE), _static_policy(),
-        _fmt_details("resnet50_fisher_static", "ResNet-50", "CIFAR-10",
-            "HessianPruningPolicy (diagonal Fisher)", CIFAR_RATE, "FixedEpochsConvergencePolicy(epochs=0) — no retraining", CIFAR_STOP,
-            "Fisher/Hessian pruning without retraining on pretrained ResNet-50/CIFAR-10."))
+# def _resnet50_fisher_static() -> None:
+#     _run_resnet50("resnet50_fisher_static", HessianPruningPolicy(CIFAR_RATE), _static_policy(),
+#         _fmt_details("resnet50_fisher_static", "ResNet-50", "CIFAR-10",
+#             "HessianPruningPolicy (diagonal Fisher)", CIFAR_RATE, "FixedEpochsConvergencePolicy(epochs=0) — no retraining", CIFAR_STOP,
+#             "Fisher/Hessian pruning without retraining on pretrained ResNet-50/CIFAR-10."))
 
-def _resnet50_fisher_retrain() -> None:
-    _run_resnet50("resnet50_fisher_retrain", HessianPruningPolicy(CIFAR_RATE), _retrain_policy(),
-        _fmt_details("resnet50_fisher_retrain", "ResNet-50", "CIFAR-10",
-            "HessianPruningPolicy (diagonal Fisher)", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
-            "Fisher/Hessian pruning with retraining to convergence on pretrained ResNet-50/CIFAR-10."))
+# def _resnet50_fisher_retrain() -> None:
+#     _run_resnet50("resnet50_fisher_retrain", HessianPruningPolicy(CIFAR_RATE), _retrain_policy(),
+#         _fmt_details("resnet50_fisher_retrain", "ResNet-50", "CIFAR-10",
+#             "HessianPruningPolicy (diagonal Fisher)", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
+#             "Fisher/Hessian pruning with retraining to convergence on pretrained ResNet-50/CIFAR-10."))
 
 def _resnet50_taylor_static() -> None:
     _run_resnet50("resnet50_taylor_static", TaylorPruningPolicy(CIFAR_RATE), _static_policy(),
@@ -281,20 +287,20 @@ def _resnet50_taylor_static() -> None:
 def _resnet50_taylor_retrain() -> None:
     _run_resnet50("resnet50_taylor_retrain", TaylorPruningPolicy(CIFAR_RATE), _retrain_policy(),
         _fmt_details("resnet50_taylor_retrain", "ResNet-50", "CIFAR-10",
-            "TaylorPruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
+            "TaylorPruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
             "Taylor pruning with retraining to convergence on pretrained ResNet-50/CIFAR-10."))
 
-def _resnet50_gradient_static() -> None:
-    _run_resnet50("resnet50_gradient_static", GradientPruningPolicy(CIFAR_RATE), _static_policy(),
-        _fmt_details("resnet50_gradient_static", "ResNet-50", "CIFAR-10",
-            "GradientPruningPolicy", CIFAR_RATE, "FixedEpochsConvergencePolicy(epochs=0) — no retraining", CIFAR_STOP,
-            "Gradient pruning without retraining on pretrained ResNet-50/CIFAR-10."))
+# def _resnet50_gradient_static() -> None:
+#     _run_resnet50("resnet50_gradient_static", GradientPruningPolicy(CIFAR_RATE), _static_policy(),
+#         _fmt_details("resnet50_gradient_static", "ResNet-50", "CIFAR-10",
+#             "GradientPruningPolicy", CIFAR_RATE, "FixedEpochsConvergencePolicy(epochs=0) — no retraining", CIFAR_STOP,
+#             "Gradient pruning without retraining on pretrained ResNet-50/CIFAR-10."))
 
-def _resnet50_gradient_retrain() -> None:
-    _run_resnet50("resnet50_gradient_retrain", GradientPruningPolicy(CIFAR_RATE), _retrain_policy(),
-        _fmt_details("resnet50_gradient_retrain", "ResNet-50", "CIFAR-10",
-            "GradientPruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
-            "Gradient pruning with retraining to convergence on pretrained ResNet-50/CIFAR-10."))
+# def _resnet50_gradient_retrain() -> None:
+#     _run_resnet50("resnet50_gradient_retrain", GradientPruningPolicy(CIFAR_RATE), _retrain_policy(),
+#         _fmt_details("resnet50_gradient_retrain", "ResNet-50", "CIFAR-10",
+#             "GradientPruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
+#             "Gradient pruning with retraining to convergence on pretrained ResNet-50/CIFAR-10."))
 
 
 # ── VGG-19 / CIFAR-100 ────────────────────────────────────────────────────────
@@ -308,7 +314,7 @@ def _vgg19_random_static() -> None:
 def _vgg19_random_retrain() -> None:
     _run_vgg19("vgg19_random_retrain", RandomPruningPolicy(CIFAR_RATE), _retrain_policy(),
         _fmt_details("vgg19_random_retrain", "VGG-19", "CIFAR-100",
-            "RandomPruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
+            "RandomPruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
             "Random pruning with retraining to convergence on pretrained VGG-19/CIFAR-100."))
 
 def _vgg19_magnitude_static() -> None:
@@ -320,20 +326,20 @@ def _vgg19_magnitude_static() -> None:
 def _vgg19_magnitude_retrain() -> None:
     _run_vgg19("vgg19_magnitude_retrain", MagnitudePruningPolicy(CIFAR_RATE), _retrain_policy(),
         _fmt_details("vgg19_magnitude_retrain", "VGG-19", "CIFAR-100",
-            "MagnitudePruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
+            "MagnitudePruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
             "Magnitude pruning with retraining to convergence on pretrained VGG-19/CIFAR-100."))
 
-def _vgg19_fisher_static() -> None:
-    _run_vgg19("vgg19_fisher_static", HessianPruningPolicy(CIFAR_RATE), _static_policy(),
-        _fmt_details("vgg19_fisher_static", "VGG-19", "CIFAR-100",
-            "HessianPruningPolicy (diagonal Fisher)", CIFAR_RATE, "FixedEpochsConvergencePolicy(epochs=0) — no retraining", CIFAR_STOP,
-            "Fisher/Hessian pruning without retraining on pretrained VGG-19/CIFAR-100."))
+# def _vgg19_fisher_static() -> None:
+#     _run_vgg19("vgg19_fisher_static", HessianPruningPolicy(CIFAR_RATE), _static_policy(),
+#         _fmt_details("vgg19_fisher_static", "VGG-19", "CIFAR-100",
+#             "HessianPruningPolicy (diagonal Fisher)", CIFAR_RATE, "FixedEpochsConvergencePolicy(epochs=0) — no retraining", CIFAR_STOP,
+#             "Fisher/Hessian pruning without retraining on pretrained VGG-19/CIFAR-100."))
 
-def _vgg19_fisher_retrain() -> None:
-    _run_vgg19("vgg19_fisher_retrain", HessianPruningPolicy(CIFAR_RATE), _retrain_policy(),
-        _fmt_details("vgg19_fisher_retrain", "VGG-19", "CIFAR-100",
-            "HessianPruningPolicy (diagonal Fisher)", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
-            "Fisher/Hessian pruning with retraining to convergence on pretrained VGG-19/CIFAR-100."))
+# def _vgg19_fisher_retrain() -> None:
+#     _run_vgg19("vgg19_fisher_retrain", HessianPruningPolicy(CIFAR_RATE), _retrain_policy(),
+#         _fmt_details("vgg19_fisher_retrain", "VGG-19", "CIFAR-100",
+#             "HessianPruningPolicy (diagonal Fisher)", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
+#             "Fisher/Hessian pruning with retraining to convergence on pretrained VGG-19/CIFAR-100."))
 
 def _vgg19_taylor_static() -> None:
     _run_vgg19("vgg19_taylor_static", TaylorPruningPolicy(CIFAR_RATE), _static_policy(),
@@ -344,20 +350,20 @@ def _vgg19_taylor_static() -> None:
 def _vgg19_taylor_retrain() -> None:
     _run_vgg19("vgg19_taylor_retrain", TaylorPruningPolicy(CIFAR_RATE), _retrain_policy(),
         _fmt_details("vgg19_taylor_retrain", "VGG-19", "CIFAR-100",
-            "TaylorPruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
+            "TaylorPruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
             "Taylor pruning with retraining to convergence on pretrained VGG-19/CIFAR-100."))
 
-def _vgg19_gradient_static() -> None:
-    _run_vgg19("vgg19_gradient_static", GradientPruningPolicy(CIFAR_RATE), _static_policy(),
-        _fmt_details("vgg19_gradient_static", "VGG-19", "CIFAR-100",
-            "GradientPruningPolicy", CIFAR_RATE, "FixedEpochsConvergencePolicy(epochs=0) — no retraining", CIFAR_STOP,
-            "Gradient pruning without retraining on pretrained VGG-19/CIFAR-100."))
+# def _vgg19_gradient_static() -> None:
+#     _run_vgg19("vgg19_gradient_static", GradientPruningPolicy(CIFAR_RATE), _static_policy(),
+#         _fmt_details("vgg19_gradient_static", "VGG-19", "CIFAR-100",
+#             "GradientPruningPolicy", CIFAR_RATE, "FixedEpochsConvergencePolicy(epochs=0) — no retraining", CIFAR_STOP,
+#             "Gradient pruning without retraining on pretrained VGG-19/CIFAR-100."))
 
-def _vgg19_gradient_retrain() -> None:
-    _run_vgg19("vgg19_gradient_retrain", GradientPruningPolicy(CIFAR_RATE), _retrain_policy(),
-        _fmt_details("vgg19_gradient_retrain", "VGG-19", "CIFAR-100",
-            "GradientPruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, tol={CONV_TOL}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
-            "Gradient pruning with retraining to convergence on pretrained VGG-19/CIFAR-100."))
+# def _vgg19_gradient_retrain() -> None:
+#     _run_vgg19("vgg19_gradient_retrain", GradientPruningPolicy(CIFAR_RATE), _retrain_policy(),
+#         _fmt_details("vgg19_gradient_retrain", "VGG-19", "CIFAR-100",
+#             "GradientPruningPolicy", CIFAR_RATE, f"UntilConvergencePolicy(window={CONV_WINDOW}, max_epochs={CONV_MAX_EPOCHS})", CIFAR_STOP,
+#             "Gradient pruning with retraining to convergence on pretrained VGG-19/CIFAR-100."))
 
 
 # ── Ordered experiment list ────────────────────────────────────────────────────
@@ -365,38 +371,38 @@ def _vgg19_gradient_retrain() -> None:
 
 _ALL_FNS = [
     # LeNet (cheap — can share a GPU or run on CPU)
-    # ("lenet_random_static",       _lenet_random_static,       "LeNet  random    static"),
-    # ("lenet_random_retrain",      _lenet_random_retrain,      "LeNet  random    retrain"),
-    # ("lenet_magnitude_static",    _lenet_magnitude_static,    "LeNet  magnitude static"),
-    # ("lenet_magnitude_retrain",   _lenet_magnitude_retrain,   "LeNet  magnitude retrain"),
+    ("lenet_random_static",       _lenet_random_static,       "LeNet  random    static"),
+    ("lenet_random_retrain",      _lenet_random_retrain,      "LeNet  random    retrain"),
+    ("lenet_magnitude_static",    _lenet_magnitude_static,    "LeNet  magnitude static"),
+    ("lenet_magnitude_retrain",   _lenet_magnitude_retrain,   "LeNet  magnitude retrain"),
     # ("lenet_fisher_static",       _lenet_fisher_static,       "LeNet  fisher    static"),
     # ("lenet_fisher_retrain",      _lenet_fisher_retrain,      "LeNet  fisher    retrain"),
-    # ("lenet_taylor_static",       _lenet_taylor_static,       "LeNet  taylor    static"),
-    # ("lenet_taylor_retrain",      _lenet_taylor_retrain,      "LeNet  taylor    retrain"),
+    ("lenet_taylor_static",       _lenet_taylor_static,       "LeNet  taylor    static"),
+    ("lenet_taylor_retrain",      _lenet_taylor_retrain,      "LeNet  taylor    retrain"),
     # ("lenet_gradient_static",     _lenet_gradient_static,     "LeNet  gradient  static"),
     # ("lenet_gradient_retrain",    _lenet_gradient_retrain,    "LeNet  gradient  retrain"),
-    # # ResNet-50 (medium cost)
-    # ("resnet50_random_static",    _resnet50_random_static,    "R50    random    static"),
+    # ResNet-50 (medium cost)
+    ("resnet50_random_static",    _resnet50_random_static,    "R50    random    static"),
     ("resnet50_random_retrain",   _resnet50_random_retrain,   "R50    random    retrain"),
     ("resnet50_magnitude_static", _resnet50_magnitude_static, "R50    magnitude static"),
     ("resnet50_magnitude_retrain",_resnet50_magnitude_retrain,"R50    magnitude retrain"),
-    ("resnet50_fisher_static",    _resnet50_fisher_static,    "R50    fisher    static"),
-    ("resnet50_fisher_retrain",   _resnet50_fisher_retrain,   "R50    fisher    retrain"),
+    # ("resnet50_fisher_static",    _resnet50_fisher_static,    "R50    fisher    static"),
+    # ("resnet50_fisher_retrain",   _resnet50_fisher_retrain,   "R50    fisher    retrain"),
     ("resnet50_taylor_static",    _resnet50_taylor_static,    "R50    taylor    static"),
     ("resnet50_taylor_retrain",   _resnet50_taylor_retrain,   "R50    taylor    retrain"),
-    ("resnet50_gradient_static",  _resnet50_gradient_static,  "R50    gradient  static"),
-    ("resnet50_gradient_retrain", _resnet50_gradient_retrain, "R50    gradient  retrain"),
+    # ("resnet50_gradient_static",  _resnet50_gradient_static,  "R50    gradient  static"),
+    # ("resnet50_gradient_retrain", _resnet50_gradient_retrain, "R50    gradient  retrain"),
     # VGG-19 (heaviest)
     ("vgg19_random_static",       _vgg19_random_static,       "VGG19  random    static"),
     ("vgg19_random_retrain",      _vgg19_random_retrain,      "VGG19  random    retrain"),
     ("vgg19_magnitude_static",    _vgg19_magnitude_static,    "VGG19  magnitude static"),
     ("vgg19_magnitude_retrain",   _vgg19_magnitude_retrain,   "VGG19  magnitude retrain"),
-    ("vgg19_fisher_static",       _vgg19_fisher_static,       "VGG19  fisher    static"),
-    ("vgg19_fisher_retrain",      _vgg19_fisher_retrain,      "VGG19  fisher    retrain"),
+    # ("vgg19_fisher_static",       _vgg19_fisher_static,       "VGG19  fisher    static"),
+    # ("vgg19_fisher_retrain",      _vgg19_fisher_retrain,      "VGG19  fisher    retrain"),
     ("vgg19_taylor_static",       _vgg19_taylor_static,       "VGG19  taylor    static"),
     ("vgg19_taylor_retrain",      _vgg19_taylor_retrain,      "VGG19  taylor    retrain"),
-    ("vgg19_gradient_static",     _vgg19_gradient_static,     "VGG19  gradient  static"),
-    ("vgg19_gradient_retrain",    _vgg19_gradient_retrain,    "VGG19  gradient  retrain"),
+    # ("vgg19_gradient_static",     _vgg19_gradient_static,     "VGG19  gradient  static"),
+    # ("vgg19_gradient_retrain",    _vgg19_gradient_retrain,    "VGG19  gradient  retrain"),
 ]
 
 

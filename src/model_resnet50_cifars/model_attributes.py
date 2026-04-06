@@ -18,10 +18,11 @@ def get_resnet50_variable_cifar10_attributes(alpha: float, num_classes: int = 10
     o3   = p3 * 4   # layer3 output
     o4   = p4 * 4   # layer4 output
 
-    def _conv(name, ic, oc, k, s, p):
+    def _conv(name, ic, oc, k, s, p, prunable=True):
         return {"name": name, "type": CONV2D_LAYER,
                 "in_channels": ic, "out_channels": oc,
-                "kernel_size": k, "stride": s, "padding": p, "bias_enabled": False}
+                "kernel_size": k, "stride": s, "padding": p, "bias_enabled": False,
+                "prunable": prunable}
 
     def _fc(name, inf, outf):
         return {"name": name, "type": FULLY_CONNECTED_LAYER,
@@ -43,7 +44,7 @@ def get_resnet50_variable_cifar10_attributes(alpha: float, num_classes: int = 10
         _conv("layer1_block1_conv1", stem, p1, 1, 1, 0),
         _conv("layer1_block1_conv2", p1,   p1, 3, 1, 1),
         _conv("layer1_block1_conv3", p1,   o1, 1, 1, 0),
-        _conv("layer1_block1_downsample", stem, o1, 1, 1, 0),
+        _conv("layer1_block1_downsample", stem, o1, 1, 1, 0, prunable=False),
     ]
     unregistered += [
         _bn("layer1_block1_bn1", p1),
@@ -69,7 +70,7 @@ def get_resnet50_variable_cifar10_attributes(alpha: float, num_classes: int = 10
         _conv("layer2_block1_conv1", o1, p2, 1, 1, 0),
         _conv("layer2_block1_conv2", p2, p2, 3, 2, 1),   # stride=2
         _conv("layer2_block1_conv3", p2, o2, 1, 1, 0),
-        _conv("layer2_block1_downsample", o1, o2, 1, 2, 0),  # stride=2
+        _conv("layer2_block1_downsample", o1, o2, 1, 2, 0, prunable=False),  # stride=2
     ]
     unregistered += [
         _bn("layer2_block1_bn1", p2),
@@ -94,7 +95,7 @@ def get_resnet50_variable_cifar10_attributes(alpha: float, num_classes: int = 10
         _conv("layer3_block1_conv1", o2, p3, 1, 1, 0),
         _conv("layer3_block1_conv2", p3, p3, 3, 2, 1),   # stride=2
         _conv("layer3_block1_conv3", p3, o3, 1, 1, 0),
-        _conv("layer3_block1_downsample", o2, o3, 1, 2, 0),  # stride=2
+        _conv("layer3_block1_downsample", o2, o3, 1, 2, 0, prunable=False),  # stride=2
     ]
     unregistered += [
         _bn("layer3_block1_bn1", p3),
@@ -119,7 +120,7 @@ def get_resnet50_variable_cifar10_attributes(alpha: float, num_classes: int = 10
         _conv("layer4_block1_conv1", o3, p4, 1, 1, 0),
         _conv("layer4_block1_conv2", p4, p4, 3, 2, 1),   # stride=2
         _conv("layer4_block1_conv3", p4, o4, 1, 1, 0),
-        _conv("layer4_block1_downsample", o3, o4, 1, 2, 0),  # stride=2
+        _conv("layer4_block1_downsample", o3, o4, 1, 2, 0, prunable=False),  # stride=2
     ]
     unregistered += [
         _bn("layer4_block1_bn1", p4),

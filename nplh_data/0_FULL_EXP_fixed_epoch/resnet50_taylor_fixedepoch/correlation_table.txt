@@ -1,0 +1,11 @@
+Pearson correlation of avg_saliency_contributing
+Folder    : resnet50_taylor_fixedepoch
+Filter    : accuracy >= 75% of peak  (peak=94.03%,  threshold=70.52%,  n=25)
+
+           Magnitude  Gradient    Taylor   Hessian  NeuronAF
+------------------------------------------------------------
+Magnitude     1.0000    0.8449    0.8164    0.6948    0.9090
+Gradient      0.8449    1.0000    0.9980    0.9508    0.5794
+Taylor        0.8164    0.9980    1.0000    0.9679    0.5457
+Hessian       0.6948    0.9508    0.9679    1.0000    0.4268
+NeuronAF      0.9090    0.5794    0.5457    0.4268    1.0000

@@ -16,7 +16,8 @@ from src.infrastructure.policies.training_convergence_policy import TrainingConv
 from src.infrastructure.policies.nplh_stopping_policy import NPLHStoppingPolicy
 from src.infrastructure.constants import BASELINE_MODELS_PATH
 from src.model_vgg19_cifars.model_vgg19_variable_class import ModelVGG19Variable
-from src.experiments.utils import get_model_density
+import time
+from src.experiments.utils import get_model_density, timed
 from src.plots.nplh_data import NplhSeries
 
 
@@ -45,6 +46,13 @@ def nplh_vgg19_cifar10(
         )
         for policy in saliency_policies
     }
+
+    # ── Warmup ────────────────────────────────────────────────────────────────
+    print(f"\n=== Warmup  |  {time.strftime('%H:%M:%S')} ===")
+    with timed() as t:
+        convergence_policy.train_until_convergence(ctx)
+        acc_w, _ = ctx.evaluate()
+    print(f"=== Warmup done — acc={acc_w:.4f}  ({t}) ===\n")
 
     for round_idx in range(1, MAX_ROUNDS + 1):
         density = get_model_density(model)

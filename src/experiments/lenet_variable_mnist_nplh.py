@@ -16,7 +16,7 @@ from src.infrastructure.policies.nplh_stopping_policy import NPLHStoppingPolicy
 from src.infrastructure.constants import BASELINE_MODELS_PATH
 from src.model_lenet.model_lenetVariable_class import ModelLenetVariable
 import time
-from src.experiments.utils import get_model_density, timed
+from src.experiments.utils import get_model_density, timed, log_layer_densities
 from src.plots.nplh_data import NplhSeries
 
 
@@ -27,6 +27,7 @@ def nplh_lenet_mnist(
     saliency_policies: list[SaliencyMeasurementPolicy],
     stopping_policy: NPLHStoppingPolicy,
     experiment_name: str,
+    warmup_policy: TrainingConvergencePolicy | None = None,
 ):
     LR_FINETUNE = 1e-3
     MAX_ROUNDS = 1000
@@ -46,6 +47,17 @@ def nplh_lenet_mnist(
         for policy in saliency_policies
     }
 
+    # ── Warmup ────────────────────────────────────────────────────────────────
+    # Run one convergence pass with the NPLH optimizer on the freshly loaded
+    # model so that Adam state is initialised and gradients are clean before
+    # the first pruning decision.
+    _warmup = warmup_policy if warmup_policy is not None else convergence_policy
+    print(f"\n=== Warmup  |  {time.strftime('%H:%M:%S')} ===")
+    with timed() as t:
+        _warmup.train_until_convergence(ctx)
+        acc_w, _ = ctx.evaluate()
+    print(f"=== Warmup done — acc={acc_w:.4f}  ({t}) ===\n")
+
     for round_idx in range(1, MAX_ROUNDS + 1):
         density = get_model_density(model)
         print(f"\n=== Round {round_idx}  |  {time.strftime('%H:%M:%S')}  |  remaining={density:.3f}% ===")
@@ -59,7 +71,9 @@ def nplh_lenet_mnist(
             pruning_policy.apply_pruning(ctx)
         density = get_model_density(model)
         print(f"  [Pruning]   done — density now {density:.3f}%  ({t})")
+        log_layer_densities(model)
 
+        # ── Training ──────────────────────────────────────────────────────────
         print(f"  [Training]  running {type(convergence_policy).__name__}...")
         with timed() as t:
             acc = convergence_policy.train_until_convergence(ctx)
@@ -67,13 +81,14 @@ def nplh_lenet_mnist(
             _, train_loss = ctx.evaluate_train()
         print(f"  [Training]  done — accuracy={acc:.4f}  test_loss={test_loss:.6f}  train_loss={train_loss:.6f}  ({t})")
 
-        print(f"  [Saliency]  computing network state...")
+        # ── Post-training saliency ────────────────────────────────────────────
+        print(f"  [Post-sal]  computing network state...")
         with timed() as t:
             network_state = compute_network_state(ctx)
         contributing = round(network_state.active_count / total_params * 100, 4)
-        print(f"  [Saliency]  present={round(network_state.present_count / total_params * 100, 4):.4f}%  active={contributing:.4f}%  ({t})")
+        print(f"  [Post-sal]  present={round(network_state.present_count / total_params * 100, 4):.4f}%  active={contributing:.4f}%  ({t})")
 
-        print(f"  [Saliency]  measuring {len(saliency_policies)} policy/policies...")
+        print(f"  [Post-sal]  measuring {len(saliency_policies)} policy/policies...")
         with timed() as t:
             for policy in saliency_policies:
                 result = policy.measure_saliency(ctx, network_state)
@@ -91,7 +106,7 @@ def nplh_lenet_mnist(
                     epoch=ctx.epoch_count,
                 )
                 series.save()
-        print(f"  [Saliency]  done — recorded and saved  ({t})")
+        print(f"  [Post-sal]  done — recorded and saved  ({t})")
 
 
 @dataclass
@@ -107,6 +122,7 @@ def experiment_lenet_variable_NPLH(
     saliency_policies: list[SaliencyMeasurementPolicy],
     stopping_policy: NPLHStoppingPolicy,
     experiment_name: str,
+    warmup_policy: TrainingConvergencePolicy | None = None,
 ) -> None:
     """Wrapper that prepares the model based on alphas/model_name and runs the experiment."""
     for spec in models_to_run:
@@ -128,4 +144,5 @@ def experiment_lenet_variable_NPLH(
             saliency_policies=saliency_policies,
             stopping_policy=stopping_policy,
             experiment_name=experiment_name,
+            warmup_policy=warmup_policy,
         )
